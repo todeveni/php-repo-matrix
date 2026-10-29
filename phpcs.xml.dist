@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<ruleset name="php-repo-matrix">
+	<description>PSR-12, indented with tabs.</description>
+
+	<file>php-repo-matrix.php</file>
+	<file>php-repo-matrix.config.php.example</file>
+
+	<arg name="extensions" value="php,example/php"/>
+	<arg name="tab-width" value="4"/>
+	<arg name="colors"/>
+	<arg name="cache" value=".phpcs.cache"/>
+	<arg value="sp"/>
+
+	<rule ref="PSR12">
+		<!-- Tabs instead of spaces. -->
+		<exclude name="Generic.WhiteSpace.DisallowTabIndent"/>
+		<!-- A single-file script declares its functions and runs. -->
+		<exclude name="PSR1.Files.SideEffects"/>
+	</rule>
+	<rule ref="Generic.WhiteSpace.DisallowSpaceIndent"/>
+	<rule ref="Generic.WhiteSpace.ScopeIndent">
+		<properties>
+			<property name="indent" value="4"/>
+			<property name="tabIndent" value="true"/>
+			<!-- PSR-2's defaults, plus PHP tags: the indentation of inline
+			     HTML templates is the indentation of their output. -->
+			<property name="ignoreIndentationTokens" type="array">
+				<element value="T_COMMENT"/>
+				<element value="T_DOC_COMMENT_OPEN_TAG"/>
+				<element value="T_OPEN_TAG"/>
+				<element value="T_OPEN_TAG_WITH_ECHO"/>
+				<element value="T_INLINE_HTML"/>
+			</property>
+		</properties>
+	</rule>
+
+	<!-- Long lines are a warning at 120, never an error. -->
+	<rule ref="Generic.Files.LineLength">
+		<properties>
+			<property name="lineLimit" value="120"/>
+			<property name="absoluteLineLimit" value="0"/>
+		</properties>
+	</rule>
+</ruleset>

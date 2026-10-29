@@ -1,4 +1,5 @@
 <?php
+
 // Copy to php-repo-matrix.config.php (or pass --config=path) to override
 // defaults. Top-level keys replace the defaults as a whole, so e.g. 'repos'
 // or 'distros' must be given in full (see $config in php-repo-matrix.php).

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * PHP build matrix
  *
@@ -1105,8 +1106,10 @@ foreach ($config['repos'] as $repoKey => $repo) {
 	foreach ($newest as $source => $b) {
 		$newer = base_version($b['version']);
 		foreach ($sources[$repoKey] ?? [] as $codename => $srcs) {
-			if (!isset($srcs[$source]) || isset($vcsChecked["$repoKey|$codename|$source"]) || isset($building[$repoKey][$codename][$source])
-				|| deb_version_compare(base_version($srcs[$source]['version']), $newer) >= 0) {
+			if (
+				!isset($srcs[$source]) || isset($vcsChecked["$repoKey|$codename|$source"]) || isset($building[$repoKey][$codename][$source])
+				|| deb_version_compare(base_version($srcs[$source]['version']), $newer) >= 0
+			) {
 				continue;
 			}
 			foreach ($buildArchs($repoKey, $codename) as $arch) {
@@ -1147,8 +1150,10 @@ if ($config['upstream'] !== null) {
 	// Pre-releases (e.g. 8.6.0RC4) of branches without a GA release yet.
 	foreach (json_decode((string) ($upstreamData[$config['upstream']['prerelease'] ?? ''] ?? ''), true) ?: [] as $r) {
 		$version = $r['release']['version'] ?? null;
-		if (($r['release']['enabled'] ?? true) && $version !== null && preg_match('/^(\d+\.\d+)\./', $version, $m)
-			&& (!isset($upstream[$m[1]]['latest']) || version_compare($version, $upstream[$m[1]]['latest'], '>'))) {
+		if (
+			($r['release']['enabled'] ?? true) && $version !== null && preg_match('/^(\d+\.\d+)\./', $version, $m)
+			&& (!isset($upstream[$m[1]]['latest']) || version_compare($version, $upstream[$m[1]]['latest'], '>'))
+		) {
 			$upstream[$m[1]]['latest'] = $version;
 			$upstream[$m[1]]['date'] = isset($r['release']['date']) ? (strtotime($r['release']['date'] . ' UTC') ?: null) : null;
 		}
@@ -1666,15 +1671,25 @@ foreach ($otherProblems as $key => $names) {
 		$bySource[$sourceOf[$name] ?? $name][] = $name;
 	}
 	foreach ($bySource as $source => $list) {
-		$addTodo($kind === 'not built for' ? 'missing build' : 'outdated build', $repoKey, $source, "$kind $archs: " . $todoNames($list),
-			['distro' => $codename, 'arch' => explode(', ', $archs), 'branch' => array_values(array_unique(array_filter(array_map($branchOf, $list))))]);
+		$addTodo(
+			$kind === 'not built for' ? 'missing build' : 'outdated build',
+			$repoKey,
+			$source,
+			"$kind $archs: " . $todoNames($list),
+			['distro' => $codename, 'arch' => explode(', ', $archs), 'branch' => array_values(array_unique(array_filter(array_map($branchOf, $list))))]
+		);
 	}
 }
 foreach ($otherBehind as $repoKey => $byCodename) {
 	foreach ($byCodename as $codename => $bySource) {
 		foreach ($bySource as $source => $names) {
-			$addTodo('behind', $repoKey, $source, count($names) . ' binar' . (count($names) === 1 ? 'y' : 'ies') . " older than on other distros, e.g. $names[0] ({$latestBase[$names[0]]} elsewhere)",
-				['distro' => $codename, 'branch' => array_values(array_unique(array_filter(array_map($branchOf, $names))))]);
+			$addTodo(
+				'behind',
+				$repoKey,
+				$source,
+				count($names) . ' binar' . (count($names) === 1 ? 'y' : 'ies') . " older than on other distros, e.g. $names[0] ({$latestBase[$names[0]]} elsewhere)",
+				['distro' => $codename, 'branch' => array_values(array_unique(array_filter(array_map($branchOf, $names))))]
+			);
 		}
 	}
 }
@@ -1697,15 +1712,26 @@ foreach ($watchLag as $repoKey => $bySource) {
 	ksort($bySource, SORT_NATURAL);
 	foreach ($bySource as $source => $lag) {
 		$have = implode('; ', array_map(static fn ($v, $c) => "$v on " . implode(', ', $c), array_keys($lag['have']), $lag['have']));
-		$addIssue('other', 'warn', "{$config['repos'][$repoKey]['label']} · $source: upstream has {$lag['latest']}, packaged is $have",
-			['repo' => $repoKey, 'distro' => array_merge(...array_values($lag['have'])), 'branch' => array_filter([$branchOf($source)])], [], ['upstream' => $lag['url']]);
+		$addIssue(
+			'other',
+			'warn',
+			"{$config['repos'][$repoKey]['label']} · $source: upstream has {$lag['latest']}, packaged is $have",
+			['repo' => $repoKey, 'distro' => array_merge(...array_values($lag['have'])), 'branch' => array_filter([$branchOf($source)])],
+			[],
+			['upstream' => $lag['url']]
+		);
 		$addTodo('new upstream', $repoKey, $source, "upstream has {$lag['latest']}, packaged is $have", ['distro' => array_merge(...array_values($lag['have']))], ['upstream' => $lag['url']]);
 	}
 }
 foreach ($watchFailed as $repoKey => $bySource) {
 	ksort($bySource, SORT_NATURAL);
-	$addIssue('other', 'warn', "{$config['repos'][$repoKey]['label']}: " . count($bySource) . ' source' . (count($bySource) === 1 ? '' : 's') . ' not checked for upstream releases',
-		['repo' => $repoKey], array_map(static fn ($s, $r) => "$s ($r)", array_keys($bySource), $bySource));
+	$addIssue(
+		'other',
+		'warn',
+		"{$config['repos'][$repoKey]['label']}: " . count($bySource) . ' source' . (count($bySource) === 1 ? '' : 's') . ' not checked for upstream releases',
+		['repo' => $repoKey],
+		array_map(static fn ($s, $r) => "$s ($r)", array_keys($bySource), $bySource)
+	);
 	foreach ($bySource as $source => $reason) {
 		$addTodo('uscan error', $repoKey, $source, $reason);
 	}
