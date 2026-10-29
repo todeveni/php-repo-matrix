@@ -1,5 +1,6 @@
 {
 	"description": "HTML matrix of PHP builds in ppa:ondrej/php and deb.sury.org/php",
+	"license": "MIT",
 	"require": {
 		"php": ">=8.5",
 		"ext-curl": "*",
