@@ -60,9 +60,13 @@ returns an array: `php-repo-matrix.config.php` next to the script, or
 ## GitHub Pages
 
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) builds the
-report every 15 minutes, keeps the script's cache between runs and deploys
-the page to GitHub Pages. To run it in a fork, set Settings → Pages → Source
-to "GitHub Actions".
+report, keeps the script's cache between runs and deploys the page to GitHub
+Pages. It has no schedule of its own: a cron job elsewhere dispatches it every
+15 minutes, since GitHub's scheduled runs proved unreliable. To run it in a
+fork, set Settings → Pages → Source to "GitHub Actions" and dispatch the
+workflow from your own cron, for example
+`gh workflow run publish.yml -R <owner>/php-repo-matrix` with a fine-grained
+token (Actions: read and write) in `GH_TOKEN`.
 
 ## Development
 

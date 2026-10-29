@@ -1,12 +1,11 @@
 name: Publish
 
 on:
-  schedule:
-    # Every 15 minutes, off the top of the hour, where scheduled runs queue longest.
-    - cron: '8,23,38,53 * * * *'
   push:
     branches: [main]
     paths: [php-repo-matrix.php]
+  # Dispatched every 15 minutes by an external cron job; GitHub's own
+  # schedule never fired reliably.
   workflow_dispatch:
 
 permissions:
