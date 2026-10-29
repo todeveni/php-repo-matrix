@@ -749,6 +749,18 @@ function worse(string $a, string $b): string
 	return STATE_RANK[$a] >= STATE_RANK[$b] ? $a : $b;
 }
 
+function is_supported(string $codename, array $config): bool
+{
+	[$family, $version] = $config['distros'][$codename];
+	return in_array($version, $config['supported'][$family] ?? [], true);
+}
+
+function distro_label(string $codename, array $config): string
+{
+	[$family, $version] = $config['distros'][$codename];
+	return "$family $version ($codename)";
+}
+
 /** Launchpad build states that mean "not done yet". */
 const BUILD_ACTIVE = ['Needs building', 'Currently building', 'Gathering build output', 'Uploading build'];
 
@@ -762,16 +774,6 @@ foreach ($config['supported'] as $family => $versions) {
 		}
 	}
 }
-
-$isSupported = static function (string $codename) use ($config): bool {
-	[$family, $version] = $config['distros'][$codename];
-	return in_array($version, $config['supported'][$family] ?? [], true);
-};
-
-$distroLabel = static function (string $codename) use ($config): string {
-	[$family, $version] = $config['distros'][$codename];
-	return "$family $version ($codename)";
-};
 
 // Supported releases with codenames, and whether any older ones are known.
 $supportedLabels = []; // family => ["12 (bookworm)", ...]
@@ -791,7 +793,7 @@ foreach ($config['supported'] as $family => $versions) {
 $scan = []; // repoKey => [codename, ...]
 foreach ($config['repos'] as $repoKey => $repo) {
 	foreach ($config['distros'] as $codename => [$family]) {
-		if (in_array($family, $repo['families'], true) && ($includeUnsupported || $isSupported($codename))) {
+		if (in_array($family, $repo['families'], true) && ($includeUnsupported || is_supported($codename, $config))) {
 			$scan[$repoKey][] = $codename;
 		}
 	}
@@ -1164,7 +1166,7 @@ if ($config['watch_ttl'] !== null) {
 	$tarballs = []; // key => .debian.tar.xz URL
 	foreach ($sources as $repoKey => $byCodename) {
 		foreach ($byCodename as $codename => $srcs) {
-			if (!$isSupported($codename)) {
+			if (!is_supported($codename, $config)) {
 				continue;
 			}
 			foreach ($srcs as $source => $src) {
@@ -1319,7 +1321,7 @@ $latestBase = [];
 $latestBranch = [];
 foreach ($pkgs as $repoKey => $byCodename) {
 	foreach ($byCodename as $codename => $byArch) {
-		if (!$isSupported($codename)) {
+		if (!is_supported($codename, $config)) {
 			continue;
 		}
 		foreach ($byArch as $versions) {
@@ -1381,7 +1383,7 @@ foreach ($building as $repoKey => $byCodename) {
 			$addIssue(
 				'build',
 				'build',
-				$distroLabel($codename) . " · $repoLabel: $source " . implode(', ', $versions),
+				distro_label($codename, $config) . " · $repoLabel: $source " . implode(', ', $versions),
 				['repo' => $repoKey, 'distro' => $codename, 'arch' => array_keys($byArch), 'branch' => array_filter([$branchOf($source)])],
 				[],
 				$links,
@@ -1396,12 +1398,12 @@ $upstreamLag = []; // repo => branch => codename => packaged upstream version
 foreach ($dists as $repoKey => $byCodename) {
 	$repoLabel = $config['repos'][$repoKey]['label'];
 	foreach ($byCodename as $codename => $dist) {
-		$where = $distroLabel($codename) . " · $repoLabel";
-		$supported = $isSupported($codename);
+		$where = distro_label($codename, $config) . " · $repoLabel";
+		$supported = is_supported($codename, $config);
 
 		if (!$dist['published']) {
 			if ($supported) {
-				$addIssue('main', 'error', $distroLabel($codename) . ": no packages in $repoLabel (distribution not published)", ['repo' => $repoKey, 'distro' => $codename]);
+				$addIssue('main', 'error', distro_label($codename, $config) . ": no packages in $repoLabel (distribution not published)", ['repo' => $repoKey, 'distro' => $codename]);
 				$addTodo('unpublished', $repoKey, '', 'distribution not published', ['distro' => $codename]);
 			}
 			continue;
@@ -1524,9 +1526,9 @@ foreach ($upstreamLag as $repoKey => $byBranch) {
 }
 
 foreach ($unbuiltCommits as [$repoKey, $codename, $source, $branch, $short, $date]) {
-	if ($isSupported($codename) && time() - strtotime($date) > $config['vcs_build_hours'] * 3600) {
+	if (is_supported($codename, $config) && time() - strtotime($date) > $config['vcs_build_hours'] * 3600) {
 		$text = "$branch is at $short (" . gmdate('Y-m-d H:i', strtotime($date)) . ' UTC), still not built — failed build?';
-		$addIssue('main', 'warn', $distroLabel($codename) . " · {$config['repos'][$repoKey]['label']} · $source: $text", ['repo' => $repoKey, 'distro' => $codename, 'branch' => array_filter([$branchOf($source)])]);
+		$addIssue('main', 'warn', distro_label($codename, $config) . " · {$config['repos'][$repoKey]['label']} · $source: $text", ['repo' => $repoKey, 'distro' => $codename, 'branch' => array_filter([$branchOf($source)])]);
 		$addTodo('vcs', $repoKey, $source, $text, ['distro' => $codename, 'branch' => array_filter([$branchOf($source)])]);
 	}
 }
@@ -1552,7 +1554,7 @@ foreach ($building as $repoKey => $byCodename) {
 foreach ($config['distros'] as $codename => $_) {
 	$inRepos = [];
 	foreach ($dists as $repoKey => $byCodename) {
-		if (($byCodename[$codename]['published'] ?? false) && $isSupported($codename)) {
+		if (($byCodename[$codename]['published'] ?? false) && is_supported($codename, $config)) {
 			$inRepos[] = $repoKey;
 		}
 	}
@@ -1570,7 +1572,7 @@ foreach ($config['distros'] as $codename => $_) {
 		});
 		if ($has && count($has) < count($inRepos)) {
 			$labels = static fn ($keys) => implode(', ', array_map(static fn ($k) => $config['repos'][$k]['label'], $keys));
-			$addIssue('main', 'warn', $distroLabel($codename) . " · PHP $branch: in " . $labels($has) . ' but not in ' . $labels(array_diff($inRepos, $has)), ['repo' => $inRepos, 'distro' => $codename, 'branch' => [$branch]]);
+			$addIssue('main', 'warn', distro_label($codename, $config) . " · PHP $branch: in " . $labels($has) . ' but not in ' . $labels(array_diff($inRepos, $has)), ['repo' => $inRepos, 'distro' => $codename, 'branch' => [$branch]]);
 			foreach (array_diff($inRepos, $has) as $repoKey) {
 				$addTodo('repo sync', $repoKey, "php$branch", 'available in ' . $labels($has) . ' only', ['distro' => $codename, 'branch' => [$branch]]);
 			}
@@ -1625,7 +1627,7 @@ foreach ($pkgs as $repoKey => $byCodename) {
 					$cell['state'] = worse($cell['state'], 'stale');
 					$cell['notes'][] = 'Older on ' . implode(', ', $stale);
 				}
-				if ($isSupported($codename)) {
+				if (is_supported($codename, $config)) {
 					if ($missing) {
 						$otherProblems["$repoKey|$codename|not built for|" . implode(', ', $missing)][] = $name;
 					}
@@ -1655,7 +1657,7 @@ foreach ($otherProblems as $key => $names) {
 	$addIssue(
 		'other',
 		'error',
-		$distroLabel($codename) . " · {$config['repos'][$repoKey]['label']}: " . count($names) . ' package' . (count($names) === 1 ? '' : 's') . " $kind $archs",
+		distro_label($codename, $config) . " · {$config['repos'][$repoKey]['label']}: " . count($names) . ' package' . (count($names) === 1 ? '' : 's') . " $kind $archs",
 		['repo' => $repoKey, 'distro' => $codename, 'arch' => explode(', ', $archs), 'branch' => $branchTags],
 		$names,
 	);
@@ -1710,35 +1712,285 @@ foreach ($watchFailed as $repoKey => $bySource) {
 }
 
 // ---------------------------------------------------------------------------
-// HTML
+// Report (see build_view() and the templates at the end of the file)
 
-$clData = [];
-foreach ($changelogs as $key => $cl) {
-	[$repoKey, $codename, $branch] = explode('|', $key);
-	$clData[$key] = [
-		'title'   => "PHP $branch · " . $distroLabel($codename) . ' · ' . $config['repos'][$repoKey]['label'],
-		'version' => $cl['version'],
-		'text'    => $cl['text'],
-		'url'     => $cl['url'],
-	];
-}
+$html = render_page(build_view($config, [
+	'supportedLabels'  => $supportedLabels,
+	'hasOlderReleases' => $hasOlderReleases,
+	'dists'            => $dists,
+	'sources'          => $sources,
+	'branches'         => $branches,
+	'changelogs'       => $changelogs,
+	'upstream'         => $upstream,
+	'watch'            => $watch,
+	'issues'           => $issues,
+	'cells'            => $cells,
+	'others'           => $others,
+	'todos'            => $todos,
+]));
 
-// Filter dimensions: every scanned distro, architecture and branch.
-$filterDistros = [];
-$filterArchs = [];
-foreach ($dists as $byCodename) {
-	foreach ($byCodename as $codename => $dist) {
-		$filterDistros[$codename] = true;
-		foreach ($dist['archs'] as $arch) {
-			$filterArchs[$arch] = true;
-		}
+// Drop cache entries nobody has used for a while.
+foreach (glob($config['cache_dir'] . '/*') ?: [] as $file) {
+	if (is_file($file) && time() - filemtime($file) > $config['cache_prune_days'] * 86400) {
+		unlink($file);
 	}
 }
-$filterDistros = array_values(array_filter(array_keys($config['distros']), static fn ($c) => isset($filterDistros[$c])));
-$filterArchs = array_keys($filterArchs);
-sort($filterArchs);
 
-$dataAttrs = static function (array $tags): string {
+$output = $opts['output'] ?? ($isCli ? __DIR__ . '/matrix.html' : '-');
+if ($output === '-') {
+	echo $html;
+	exit(0);
+}
+
+if (file_put_contents($output, $html) === false) {
+	fail("Cannot write $output");
+}
+info("Wrote $output (" . count($issues['main']) . ' main issues, ' . count($issues['other']) . ' issue groups in other packages)');
+
+if (!isset($opts['no-publish'])) {
+	foreach ($config['publish'] as $target) {
+		// BatchMode: fail instead of prompting when run from cron.
+		$proc = proc_open(['scp', '-q', '-o', 'BatchMode=yes', $output, $target], [], $pipes);
+		if (!is_resource($proc) || proc_close($proc) !== 0) {
+			fail("scp to $target failed");
+		}
+		info("Published to $target");
+	}
+}
+
+// ---------------------------------------------------------------------------
+// View
+
+/**
+ * Prepares everything the templates print, so they only loop, branch on
+ * flags and escape.
+ *
+ * @param array<string, mixed> $report results of the analysis
+ * @return array<string, mixed>
+ */
+function build_view(array $config, array $report): array
+{
+	[
+		'supportedLabels'  => $supportedLabels,
+		'hasOlderReleases' => $hasOlderReleases,
+		'dists'            => $dists,
+		'sources'          => $sources,
+		'branches'         => $branches,
+		'changelogs'       => $changelogs,
+		'upstream'         => $upstream,
+		'watch'            => $watch,
+		'issues'           => $issues,
+		'cells'            => $cells,
+		'others'           => $others,
+		'todos'            => $todos,
+	] = $report;
+
+	$issueCount = static fn (string $level): int
+		=> count(array_filter($issues['main'], static fn ($i) => $i['level'] === $level));
+
+	$view = [
+		'generated'     => gmdate('Y-m-d H:i'),
+		// null when no repository reports build status
+		'buildCount'    => array_filter(array_column($config['repos'], 'builds')) ? count($issues['build']) : null,
+		'repoLabels'    => array_column($config['repos'], 'label'),
+		'tracked'       => implode(' ', array_map(static fn ($p) => sprintf($p, 'X.Y'), $config['sapi_packages'])),
+		'supported'     => implode(' · ', array_map(static fn ($f, $l) => $f . ' ' . implode(', ', $l), array_keys($supportedLabels), $supportedLabels)),
+		'olderReleases' => $hasOlderReleases,
+		'freexianUrl'   => $config['freexian_url'],
+		'ppaLabel'      => $config['repos']['ppa']['label'] ?? null,
+		'issues'        => $issues,
+		'issueCounts'   => ['error' => $issueCount('error'), 'warn' => $issueCount('warn')],
+		'hasUpstream'   => (bool) $upstream,
+		'hasChangelogs' => (bool) $changelogs,
+		'hasWatch'      => (bool) $watch,
+		'repos'         => [], // repoKey => ['label', 'url', 'deprecated']
+		'distros'       => [], // codename => ['label', 'supported']
+		'branches'      => [], // branch => ['title', 'state' => ['class', 'label'] for non-stable branches]
+		'filters'       => [],
+		'matrices'      => [], // repoKey => ['distros' => codename => [...], 'rows' => branch => [...]]
+		'others'        => [], // repoKey => ['distros' => codename => published, 'groups' => [...]]
+		'todoTypes'     => [], // type => ['description', 'count']
+		'todos'         => [],
+		'changelogs'    => [], // "repo|codename|branch" => ['title', 'version', 'text', 'url']
+	];
+
+	foreach ($config['repos'] as $repoKey => $repo) {
+		$view['repos'][$repoKey] = [
+			'label'      => $repo['label'],
+			'url'        => $repo['web'] ?? $repo['url'],
+			'deprecated' => $repo['deprecated'] ?? null,
+		];
+	}
+	foreach ($config['distros'] as $codename => $_) {
+		$view['distros'][$codename] = ['label' => distro_label($codename, $config), 'supported' => is_supported($codename, $config)];
+	}
+	foreach ($branches as $branch) {
+		$st = $upstream[$branch]['state'] ?? null;
+		$view['branches'][$branch] = [
+			'title' => isset($upstream[$branch]['security_end']) ? 'php.net security support until ' . substr($upstream[$branch]['security_end'], 0, 10) : null,
+			'state' => $st !== null && $st !== 'stable' ? ['class' => $st, 'label' => $st === 'eol' ? 'EOL' : $st] : null,
+		];
+	}
+
+	// Filter dimensions: every scanned distro, architecture and branch.
+	$filterDistros = [];
+	$filterArchs = [];
+	foreach ($dists as $byCodename) {
+		foreach ($byCodename as $codename => $dist) {
+			$filterDistros[$codename] = true;
+			foreach ($dist['archs'] as $arch) {
+				$filterArchs[$arch] = true;
+			}
+		}
+	}
+	$filterArchs = array_keys($filterArchs);
+	sort($filterArchs);
+	$view['filters'] = [
+		'distro' => array_values(array_filter(array_keys($config['distros']), static fn ($c) => isset($filterDistros[$c]))),
+		'arch'   => $filterArchs,
+		'branch' => $branches,
+	];
+
+	// Main matrix per repository.
+	foreach ($dists as $repoKey => $byCodename) {
+		$matrix = ['distros' => [], 'rows' => []];
+		foreach ($byCodename as $codename => $dist) {
+			$matrix['distros'][$codename] = [
+				'published' => $dist['published'],
+				'note'      => (is_supported($codename, $config) ? '' : 'unsupported · ') . ($dist['published']
+					? ($dist['date'] ? 'updated ' . gmdate('Y-m-d H:i', strtotime($dist['date'])) : '')
+					: 'not published in this repository'),
+				'archs'     => [], // arch => true when only arch:all packages are built
+			];
+			foreach ($dist['archs'] as $arch) {
+				$matrix['distros'][$codename]['archs'][$arch] = in_array($arch, $dist['unbuilt'] ?? [], true);
+			}
+		}
+		foreach ($branches as $branch) {
+			$row = ['bad' => false, 'cells' => []]; // cells: codename => arch => cell
+			foreach ($cells[$repoKey] ?? [] as $codename => $byBranch) {
+				foreach ($byBranch[$branch] ?? [] as $cell) {
+					$row['bad'] = $row['bad'] || (is_supported($codename, $config) && STATE_RANK[$cell['state']] >= STATE_RANK['behind']);
+				}
+			}
+			foreach ($byCodename as $codename => $dist) {
+				$clKey = isset($changelogs["$repoKey|$codename|$branch"]) ? "$repoKey|$codename|$branch" : null;
+				foreach ($dist['archs'] as $arch) {
+					$cell = $cells[$repoKey][$codename][$branch][$arch];
+					$cell['changelog'] = $cell['version'] !== null ? $clKey : null;
+					$row['cells'][$codename][$arch] = $cell;
+				}
+			}
+			$matrix['rows'][$branch] = $row;
+		}
+		$view['matrices'][$repoKey] = $matrix;
+	}
+
+	// Other packages: one group per PHP branch, then the rest.
+	foreach ($others as $repoKey => $groups) {
+		$other = ['distros' => array_map(static fn ($d) => $d['published'], $dists[$repoKey]), 'groups' => []];
+		$order = array_values(array_filter($branches, static fn ($b) => isset($groups[$b])));
+		if (isset($groups['other'])) {
+			$order[] = 'other';
+		}
+		foreach ($order as $group) {
+			$rows = [];
+			$bad = 0;
+			foreach ($groups[$group] as $name => $byCodename) {
+				$bad += array_filter($byCodename, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK['stale']) ? 1 : 0;
+				$rows[$name] = [
+					'bad'   => (bool) array_filter($byCodename, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK['behind']),
+					'cells' => $byCodename,
+				];
+			}
+			$other['groups'][] = [
+				'branch' => $group === 'other' ? null : $group,
+				'label'  => $group === 'other' ? 'not tied to a PHP branch' : "PHP $group",
+				'bad'    => $bad,
+				'rows'   => $rows,
+			];
+		}
+		$view['others'][$repoKey] = $other;
+	}
+
+	// One todo row per type, repository, source and distros: the core/SAPI
+	// and the "other packages" checks both report phpX.Y.
+	$merged = [];
+	foreach ($todos as $t) {
+		$key = implode('|', [$t['type'], $t['repo'], $t['source'], implode(' ', (array) ($t['tags']['distro'] ?? []))]);
+		if (!isset($merged[$key])) {
+			$merged[$key] = $t;
+			continue;
+		}
+		$merged[$key]['text'] .= '; ' . $t['text'];
+		$merged[$key]['links'] += $t['links'];
+		foreach (['arch', 'branch'] as $dim) {
+			if (isset($t['tags'][$dim]) || isset($merged[$key]['tags'][$dim])) {
+				$merged[$key]['tags'][$dim] = array_values(array_unique(array_merge((array) ($merged[$key]['tags'][$dim] ?? []), (array) ($t['tags'][$dim] ?? []))));
+			}
+		}
+	}
+	$todos = array_values($merged);
+
+	// Todo rows: by type, then source, then repository. The id is stable while
+	// the text is, so a hidden row comes back when something changes.
+	$typeOrder = array_flip(array_keys(TODO_TYPES));
+	$repoOrder = array_flip(array_keys($config['repos']));
+	usort($todos, static fn ($a, $b) => $typeOrder[$a['type']] <=> $typeOrder[$b['type']]
+		?: strnatcmp($a['source'], $b['source']) ?: $repoOrder[$a['repo']] <=> $repoOrder[$b['repo']]);
+	$todoTypes = array_count_values(array_column($todos, 'type'));
+	foreach (TODO_TYPES as $type => $desc) {
+		if (isset($todoTypes[$type])) {
+			$view['todoTypes'][$type] = ['description' => $desc, 'count' => $todoTypes[$type]];
+		}
+	}
+	$sourceUrl = static function (string $repoKey, string $source) use ($config, $sources): ?string {
+		$repo = $config['repos'][$repoKey];
+		if (str_contains($repo['web'] ?? '', 'launchpad.net')) {
+			return $repo['web'] . '/+packages?' . http_build_query(['field.name_filter' => $source, 'field.status_filter' => 'published']);
+		}
+		foreach ($sources[$repoKey] ?? [] as $srcs) {
+			if (isset($srcs[$source]['vcs'])) {
+				return $srcs[$source]['vcs'];
+			}
+		}
+		return null;
+	};
+	foreach ($todos as $t) {
+		$distros = implode(' ', (array) ($t['tags']['distro'] ?? []));
+		$view['todos'][] = [
+			'id'      => substr(sha1("{$t['type']}|{$t['repo']}|{$t['source']}|{$t['text']}|$distros"), 0, 12),
+			'type'    => $t['type'],
+			'class'   => 't-' . str_replace(' ', '-', $t['type']),
+			'source'  => $t['source'],
+			'url'     => $t['source'] !== '' ? $sourceUrl($t['repo'], $t['source']) : null,
+			'repo'    => $config['repos'][$t['repo']]['label'],
+			'distros' => implode(', ', (array) ($t['tags']['distro'] ?? [])),
+			'text'    => $t['text'],
+			'links'   => $t['links'],
+			'tags'    => $t['tags'],
+		];
+	}
+
+	foreach ($changelogs as $key => $cl) {
+		[$repoKey, $codename, $branch] = explode('|', $key);
+		$view['changelogs'][$key] = [
+			'title'   => "PHP $branch · " . distro_label($codename, $config) . ' · ' . $config['repos'][$repoKey]['label'],
+			'version' => $cl['version'],
+			'text'    => $cl['text'],
+			'url'     => $cl['url'],
+		];
+	}
+
+	return $view;
+}
+
+// ---------------------------------------------------------------------------
+// Templates: markup only, from the data prepared by build_view().
+
+/** Filter attributes (data-repo, data-distro, ...) for a row or item. */
+function data_attrs(array $tags): string
+{
 	$out = '';
 	foreach (['repo', 'distro', 'arch', 'branch'] as $dim) {
 		if (isset($tags[$dim])) {
@@ -1746,9 +1998,10 @@ $dataAttrs = static function (array $tags): string {
 		}
 	}
 	return $out;
-};
+}
 
-$cellHtml = static function (array $cell, string $attrs = '', string $extraClass = '', ?string $clKey = null): string {
+function render_cell(array $cell, string $attrs = '', string $extraClass = '', ?string $clKey = null): string
+{
 	$v = $cell['version'];
 	$title = $v ?? 'not available';
 	if ($cell['notes']) {
@@ -1767,12 +2020,13 @@ $cellHtml = static function (array $cell, string $attrs = '', string $extraClass
 		$attrs .= ' data-cl="' . h($clKey) . '" tabindex="0"';
 	}
 	return "<td$attrs>" . h($label) . ($cell['notes'] ? '<i>!</i>' : '') . '</td>';
-};
+}
 
-$issueList = static function (array $list) use ($dataAttrs): string {
+function render_issues(array $list): string
+{
 	$out = '<ul class="issues">';
 	foreach ($list as $issue) {
-		$out .= '<li class="i-' . h($issue['level']) . '"' . $dataAttrs($issue['tags']) . '>';
+		$out .= '<li class="i-' . h($issue['level']) . '"' . data_attrs($issue['tags']) . '>';
 		// "distro · repo · PHP x.y: message" => context line above the message.
 		$parts = explode(': ', $issue['text'], 2);
 		$text = count($parts) === 2
@@ -1789,55 +2043,23 @@ $issueList = static function (array $list) use ($dataAttrs): string {
 		$out .= '</li>';
 	}
 	return $out . '</ul>';
-};
-
-$issueCount = static fn (array $list, string $level) => count(array_filter($list, static fn ($i) => $i['level'] === $level));
-
-$deprecatedTag = static fn (array $repo): string => isset($repo['deprecated'])
-	? ' <a class="deprecated" href="' . h($repo['deprecated']['url']) . '" title="' . h($repo['deprecated']['text']) . '">deprecated</a>'
-	: '';
-
-// One row per type, repository, source and distros: the core/SAPI and the
-// "other packages" checks both report phpX.Y.
-$merged = [];
-foreach ($todos as $t) {
-	$key = implode('|', [$t['type'], $t['repo'], $t['source'], implode(' ', (array) ($t['tags']['distro'] ?? []))]);
-	if (!isset($merged[$key])) {
-		$merged[$key] = $t;
-		continue;
-	}
-	$merged[$key]['text'] .= '; ' . $t['text'];
-	$merged[$key]['links'] += $t['links'];
-	foreach (['arch', 'branch'] as $dim) {
-		if (isset($t['tags'][$dim]) || isset($merged[$key]['tags'][$dim])) {
-			$merged[$key]['tags'][$dim] = array_values(array_unique(array_merge((array) ($merged[$key]['tags'][$dim] ?? []), (array) ($t['tags'][$dim] ?? []))));
-		}
-	}
 }
-$todos = array_values($merged);
 
-// Todo rows: by type, then source, then repository. The id is stable while
-// the text is, so a hidden row comes back when something changes.
-$typeOrder = array_flip(array_keys(TODO_TYPES));
-$repoOrder = array_flip(array_keys($config['repos']));
-usort($todos, static fn ($a, $b) => $typeOrder[$a['type']] <=> $typeOrder[$b['type']]
-	?: strnatcmp($a['source'], $b['source']) ?: $repoOrder[$a['repo']] <=> $repoOrder[$b['repo']]);
-$todoTypes = array_count_values(array_column($todos, 'type'));
-$sourceUrl = static function (string $repoKey, string $source) use ($config, $sources): ?string {
-	$repo = $config['repos'][$repoKey];
-	if (str_contains($repo['web'] ?? '', 'launchpad.net')) {
-		return $repo['web'] . '/+packages?' . http_build_query(['field.name_filter' => $source, 'field.status_filter' => 'published']);
-	}
-	foreach ($sources[$repoKey] ?? [] as $srcs) {
-		if (isset($srcs[$source]['vcs'])) {
-			return $srcs[$source]['vcs'];
-		}
-	}
-	return null;
-};
+function deprecated_tag(?array $deprecated): string
+{
+	return $deprecated !== null
+		? ' <a class="deprecated" href="' . h($deprecated['url']) . '" title="' . h($deprecated['text']) . '">deprecated</a>'
+		: '';
+}
 
-ob_start();
-?>
+// The templates below are HTML with inline PHP; the PHP layout rules don't
+// apply to them.
+// phpcs:disable
+
+function render_page(array $view): string
+{
+	ob_start();
+	?>
 <!doctype html>
 <html lang="en">
 <head>
@@ -1847,6 +2069,243 @@ ob_start();
 <link rel="preconnect" href="https://fonts.bunny.net" crossorigin>
 <link href="https://fonts.bunny.net/css?family=ibm-plex-mono:400,500,600|ibm-plex-sans-condensed:400,600,700&amp;display=swap" rel="stylesheet">
 <style>
+<?php render_styles(); ?>
+</style>
+</head>
+<body>
+<main>
+<header class="masthead">
+	<h1>php<span>/</span>build-matrix</h1>
+	<div class="stamp">generated <?= h($view['generated']) ?> UTC<?php if ($view['buildCount'] !== null): ?><br><?php if ($view['buildCount']): ?><a href="#building"><?= $view['buildCount'] ?> source<?= $view['buildCount'] === 1 ? '' : 's' ?> building</a><?php else: ?>no builds in progress<?php endif; ?><?php endif; ?></div>
+	<p>Core and SAPI package versions per PHP branch, distribution and architecture in
+		<?= h(implode(' and ', $view['repoLabels'])) ?>.<br>
+		Tracked: <code><?= h($view['tracked']) ?></code></p>
+</header>
+
+<div class="support">
+	<div><b>Supported</b><?= h($view['supported']) ?></div>
+	<?php foreach ($view['repos'] as $repoKey => $repo): if ($repo['deprecated'] !== null): ?>
+	<div class="unsup" data-repo="<?= h($repoKey) ?>"><b>Deprecated</b><?= h($repo['label']) ?> · <a href="<?= h($repo['deprecated']['url']) ?>"><?= h($repo['deprecated']['text']) ?></a></div>
+	<?php endif; endforeach; ?>
+	<?php if ($view['olderReleases']): ?>
+	<div class="unsup"><b>Older releases</b>Commercial support by <a href="<?= h($view['freexianUrl']) ?>">Freexian PHP LTS</a></div>
+	<?php endif; ?>
+</div>
+
+<nav class="filters" aria-label="Filters">
+	<div class="fgroup" data-dim="distro"><span title="Click to select all / none">Distro</span>
+		<?php foreach ($view['filters']['distro'] as $codename): ?>
+		<button type="button" class="chip" data-value="<?= h($codename) ?>" aria-pressed="true" title="<?= h($view['distros'][$codename]['label']) ?>"><?= h($codename) ?></button>
+		<?php endforeach; ?>
+	</div>
+	<div class="fgroup" data-dim="arch"><span title="Click to select all / none">Arch</span>
+		<?php foreach ($view['filters']['arch'] as $arch): ?>
+		<button type="button" class="chip" data-value="<?= h($arch) ?>" aria-pressed="true"><?= h($arch) ?></button>
+		<?php endforeach; ?>
+	</div>
+	<div class="fgroup" data-dim="branch"><span title="Click to select all / none">PHP</span>
+		<?php foreach ($view['filters']['branch'] as $branch): ?>
+		<button type="button" class="chip" data-value="<?= h($branch) ?>" aria-pressed="true"><?= h($branch) ?></button>
+		<?php endforeach; ?>
+	</div>
+	<div class="fgroup">
+		<button type="button" class="chip toggle" id="only-bad" aria-pressed="false">problems only</button>
+		<?php if ($view['ppaLabel'] !== null): ?>
+		<button type="button" class="chip toggle" id="hide-ppa" aria-pressed="false" title="Hide <?= h($view['ppaLabel']) ?> everywhere: matrices, issues and todos">hide PPA</button>
+		<?php endif; ?>
+		<button type="button" class="chip" id="reset" title="Show everything: all repositories, distros, architectures and PHP branches">reset</button>
+	</div>
+	<span class="hint">click to toggle · shift-click for only this one · click a group name for all/none</span>
+</nav>
+
+<?php if ($view['issues']['build']): ?>
+<h2 id="building">Building now <span class="count">queued or running on Launchpad, unbuilt packaging commits, or (dashed) probably building because the PPA is; affected cells are outlined</span></h2>
+<?= render_issues($view['issues']['build']) ?>
+<?php endif; ?>
+
+<h2>Issues <span class="count" id="issue-count"><?= $view['issueCounts']['error'] ?> errors · <?= $view['issueCounts']['warn'] ?> warnings</span></h2>
+<?php if ($view['issues']['main']): ?>
+	<?= render_issues($view['issues']['main']) ?>
+<?php else: ?>
+	<p>No problems in the core/SAPI packages.</p>
+<?php endif; ?>
+
+<ul class="legend">
+	<li><b style="background:var(--ok-bg)"></b>latest</li>
+	<?php if ($view['hasUpstream']): ?><li><b style="background:var(--behind-bg);box-shadow:inset 3px 0 0 var(--bad-fg)"></b>behind php.net release</li><?php endif; ?>
+	<li><b style="background:var(--behind-bg)"></b>behind other distros</li>
+	<li><b style="background:var(--bad-bg)"></b>missing package(s) or older than other architectures</li>
+	<li><b class="unpub" style="background:repeating-linear-gradient(135deg, transparent 0 5px, var(--rule) 5px 7px)"></b>distribution not published</li>
+	<?php if ($view['issues']['build']): ?><li><b class="building" style="background-color:var(--ok-bg);box-shadow:inset 0 0 0 2px var(--mark)"></b>build in progress</li><?php endif; ?>
+	<li><span class="mono">!</span> hover for details<?= $view['hasChangelogs'] ? ' · click a version for its changelog' : '' ?></li>
+</ul>
+
+<?php render_matrices($view); ?>
+
+<?php render_others($view); ?>
+
+<?php render_todos($view); ?>
+</main>
+
+<dialog id="changelog">
+	<header>
+		<div><h3 id="cl-title"></h3><div class="ver" id="cl-version"></div></div>
+		<button type="button" autofocus onclick="this.closest('dialog').close()">close</button>
+	</header>
+	<pre id="cl-text"></pre>
+	<footer><a id="cl-url" target="_blank" rel="noopener">full changelog ↗</a></footer>
+</dialog>
+
+<script>
+<?php render_script($view['changelogs']); ?>
+</script>
+</body>
+</html>
+<?php
+	return (string) ob_get_clean();
+}
+
+/** Main matrix: one table per repository, PHP branches × distro architectures. */
+function render_matrices(array $view): void
+{
+	?>
+<?php foreach ($view['matrices'] as $repoKey => $matrix): $repo = $view['repos'][$repoKey]; ?>
+<section class="repo" data-repo="<?= h($repoKey) ?>" data-distro="<?= h(implode(' ', array_keys($matrix['distros']))) ?>">
+<h2><?= h($repo['label']) ?> <a href="<?= h($repo['url']) ?>"><?= h($repo['url']) ?></a><?= deprecated_tag($repo['deprecated']) ?></h2>
+<div class="scroll">
+<table class="matrix">
+	<thead>
+		<tr>
+			<th class="row" rowspan="2">PHP</th>
+			<?php foreach ($matrix['distros'] as $codename => $dist): $distro = $view['distros'][$codename]; ?>
+			<th class="dhead<?= $distro['supported'] ? '' : ' dim' ?>" data-distro="<?= h($codename) ?>" colspan="<?= max(1, count($dist['archs'])) ?>">
+				<?= h($distro['label']) ?>
+				<small><?= h($dist['note']) ?></small>
+			</th>
+			<?php endforeach; ?>
+		</tr>
+		<tr>
+			<?php foreach ($matrix['distros'] as $codename => $dist): ?>
+				<?php if (!$dist['published']): ?><th class="arch" data-distro="<?= h($codename) ?>">—</th><?php endif; ?>
+				<?php foreach ($dist['archs'] as $arch => $unbuilt): ?>
+				<th class="arch<?= $unbuilt ? ' dim' : '' ?>" data-distro="<?= h($codename) ?>" data-arch="<?= h($arch) ?>"<?= $unbuilt ? ' title="Listed in Release, but only arch:all packages"' : '' ?>><?= h($arch) ?><?= $unbuilt ? '<small>not built</small>' : '' ?></th>
+				<?php endforeach; ?>
+			<?php endforeach; ?>
+		</tr>
+	</thead>
+	<tbody>
+	<?php foreach ($matrix['rows'] as $branch => $row): $info = $view['branches'][$branch]; ?>
+		<tr data-branch="<?= h($branch) ?>"<?= $row['bad'] ? ' data-bad' : '' ?>>
+			<th class="row"<?= $info['title'] !== null ? ' title="' . h($info['title']) . '"' : '' ?>><?= h($branch) ?><?php
+				if ($info['state'] !== null): ?><small class="ustate u-<?= h($info['state']['class']) ?>"><?= h($info['state']['label']) ?></small><?php endif; ?></th>
+			<?php foreach ($matrix['distros'] as $codename => $dist):
+				$dim = $view['distros'][$codename]['supported'] ? '' : ' dim';
+				if (!$dist['published']): ?><td class="unpub<?= $dim ?>" data-distro="<?= h($codename) ?>">not published</td><?php endif;
+				foreach (array_keys($dist['archs']) as $arch):
+					$cell = $row['cells'][$codename][$arch];
+					echo render_cell($cell, data_attrs(['distro' => $codename, 'arch' => $arch]), $dim, $cell['changelog']);
+				endforeach;
+			endforeach; ?>
+		</tr>
+	<?php endforeach; ?>
+	</tbody>
+</table>
+</div>
+</section>
+<?php endforeach; ?>
+<?php
+}
+
+/** All other packages: one cell per distro, grouped by PHP branch. */
+function render_others(array $view): void
+{
+	?>
+<h2 id="other">All other packages <span class="count">one cell per distro · newest version across architectures<?= $view['hasWatch'] ? ' · left bar: newer upstream release (debian/watch)' : '' ?></span></h2>
+<details class="other-issues">
+	<summary>Problems in other packages (<?= count($view['issues']['other']) ?> groups)</summary>
+	<?= render_issues($view['issues']['other']) ?>
+</details>
+<div class="pkgtools">
+	<input type="search" id="pkg-filter" placeholder="filter packages: redis, intl, libgd…">
+	<button type="button" id="expand">expand all</button>
+</div>
+
+<?php foreach ($view['others'] as $repoKey => $other): $repo = $view['repos'][$repoKey]; ?>
+<section class="repo" data-repo="<?= h($repoKey) ?>" data-distro="<?= h(implode(' ', array_keys($other['distros']))) ?>">
+<h3><?= h($repo['label']) ?><?= deprecated_tag($repo['deprecated']) ?></h3>
+<?php foreach ($other['groups'] as $group): ?>
+<details class="pkgs"<?= $group['branch'] === null ? '' : ' data-branch="' . h($group['branch']) . '"' ?>>
+	<summary><?= h($group['label']) ?><span><?= count($group['rows']) ?> packages</span><?php if ($group['bad']): ?><span class="bad"><?= $group['bad'] ?> with problems</span><?php endif; ?></summary>
+	<div class="scroll">
+	<table>
+		<thead><tr>
+			<th class="row">package</th>
+			<?php foreach (array_keys($other['distros']) as $codename): $distro = $view['distros'][$codename]; ?>
+			<th class="<?= $distro['supported'] ? '' : 'dim' ?>" data-distro="<?= h($codename) ?>"><?= h($distro['label']) ?></th>
+			<?php endforeach; ?>
+		</tr></thead>
+		<tbody>
+		<?php foreach ($group['rows'] as $name => $row): ?>
+			<tr data-name="<?= h((string) $name) ?>"<?= $row['bad'] ? ' data-bad' : '' ?>>
+				<th class="row"><?= h((string) $name) ?></th>
+				<?php foreach ($other['distros'] as $codename => $published):
+					$dim = $view['distros'][$codename]['supported'] ? '' : ' dim';
+					if ($published):
+						echo render_cell($row['cells'][$codename], ' data-distro="' . h($codename) . '"', $dim);
+					else: ?><td class="unpub<?= $dim ?>" data-distro="<?= h($codename) ?>">not published</td><?php endif;
+				endforeach; ?>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+	</div>
+</details>
+<?php endforeach; ?>
+</section>
+<?php endforeach; ?>
+<?php
+}
+
+/** Todo list, one row per thing to do for a source package. */
+function render_todos(array $view): void
+{
+	?>
+<h2 id="todo">Todo list <span class="count" id="todo-count"><?= count($view['todos']) ?> items</span></h2>
+<div class="pkgtools">
+	<div class="fgroup" id="todo-types">
+		<?php foreach ($view['todoTypes'] as $type => $todoType): ?>
+		<button type="button" class="chip" data-type="<?= h($type) ?>" aria-pressed="true" title="<?= h($todoType['description']) ?>"><?= h($type) ?> <?= $todoType['count'] ?></button>
+		<?php endforeach; ?>
+	</div>
+	<button type="button" id="todo-show-hidden" aria-pressed="false">show hidden (<span id="todo-hidden-count">0</span>)</button>
+</div>
+<?php if ($view['todos']): ?>
+<div class="scroll">
+<table class="todo">
+	<thead><tr><th>type</th><th>source</th><th>repository</th><th>distros</th><th>description</th><th></th></tr></thead>
+	<tbody>
+	<?php foreach ($view['todos'] as $todo): ?>
+		<tr class="<?= h($todo['class']) ?>" data-id="<?= $todo['id'] ?>" data-type="<?= h($todo['type']) ?>"<?= data_attrs($todo['tags']) ?>>
+			<td class="type"><?= h($todo['type']) ?></td>
+			<td class="src"><?php if ($todo['source'] === ''): ?>—<?php elseif ($todo['url'] !== null): ?><a href="<?= h($todo['url']) ?>" target="_blank" rel="noopener"><?= h($todo['source']) ?></a><?php else: ?><?= h($todo['source']) ?><?php endif; ?></td>
+			<td class="repo"><?= h($todo['repo']) ?></td>
+			<td class="dist"><?= h($todo['distros']) ?></td>
+			<td><?= h($todo['text']) ?><?php foreach ($todo['links'] as $label => $link): ?> <a href="<?= h($link) ?>" target="_blank" rel="noopener"><?= h($label) ?></a><?php endforeach; ?></td>
+			<td><button type="button" class="todo-hide">hide</button></td>
+		</tr>
+	<?php endforeach; ?>
+	</tbody>
+</table>
+</div>
+<?php else: ?>
+<p>Nothing to do.</p>
+<?php endif; ?>
+<?php
+}
+
+function render_styles(): void
+{
+	?>
 :root {
 	--paper: #f3efe6; --ink: #1f1a14; --muted: #786d5e; --rule: #d6ccba; --rule-strong: #1f1a14; --band: #e8e0d0;
 	--ok-bg: #dfe5c8; --ok-fg: #3d561c;
@@ -1987,234 +2446,13 @@ dialog .ver { font: 12px var(--mono); color: var(--muted); }
 dialog pre { margin: 0; padding: 12px 16px; overflow: auto; max-height: calc(100vh - 210px); font: 12px/1.5 var(--mono); white-space: pre-wrap; }
 dialog footer { padding: 8px 16px 12px; font: 12px var(--mono); border-top: 1px solid var(--rule); }
 dialog button { font: 500 12px var(--mono); border: 1px solid var(--ink); background: transparent; color: var(--ink); padding: 2px 10px; cursor: pointer; }
-</style>
-</head>
-<body>
-<main>
-<header class="masthead">
-	<h1>php<span>/</span>build-matrix</h1>
-	<div class="stamp">generated <?= h(gmdate('Y-m-d H:i')) ?> UTC<?php if (array_filter(array_column($config['repos'], 'builds'))): ?><br><?= $issues['build'] ? '<a href="#building">' . count($issues['build']) . ' source' . (count($issues['build']) === 1 ? '' : 's') . ' building</a>' : 'no builds in progress' ?><?php endif; ?></div>
-	<p>Core and SAPI package versions per PHP branch, distribution and architecture in
-		<?= implode(' and ', array_map(static fn ($r) => h($r['label']), $config['repos'])) ?>.<br>
-		Tracked: <code><?= h(implode(' ', array_map(static fn ($p) => sprintf($p, 'X.Y'), $config['sapi_packages']))) ?></code></p>
-</header>
-
-<div class="support">
-	<div><b>Supported</b><?= implode(' · ', array_map(static fn ($f, $l) => h($f . ' ' . implode(', ', $l)), array_keys($supportedLabels), $supportedLabels)) ?></div>
-	<?php foreach ($config['repos'] as $repoKey => $repo): if (isset($repo['deprecated'])): ?>
-	<div class="unsup" data-repo="<?= h($repoKey) ?>"><b>Deprecated</b><?= h($repo['label']) ?> · <a href="<?= h($repo['deprecated']['url']) ?>"><?= h($repo['deprecated']['text']) ?></a></div>
-	<?php endif; endforeach; ?>
-	<?php if ($hasOlderReleases): ?>
-	<div class="unsup"><b>Older releases</b>Commercial support by <a href="<?= h($config['freexian_url']) ?>">Freexian PHP LTS</a></div>
-	<?php endif; ?>
-</div>
-
-<nav class="filters" aria-label="Filters">
-	<div class="fgroup" data-dim="distro"><span title="Click to select all / none">Distro</span>
-		<?php foreach ($filterDistros as $codename): ?>
-		<button type="button" class="chip" data-value="<?= h($codename) ?>" aria-pressed="true" title="<?= h($distroLabel($codename)) ?>"><?= h($codename) ?></button>
-		<?php endforeach; ?>
-	</div>
-	<div class="fgroup" data-dim="arch"><span title="Click to select all / none">Arch</span>
-		<?php foreach ($filterArchs as $arch): ?>
-		<button type="button" class="chip" data-value="<?= h($arch) ?>" aria-pressed="true"><?= h($arch) ?></button>
-		<?php endforeach; ?>
-	</div>
-	<div class="fgroup" data-dim="branch"><span title="Click to select all / none">PHP</span>
-		<?php foreach ($branches as $branch): ?>
-		<button type="button" class="chip" data-value="<?= h($branch) ?>" aria-pressed="true"><?= h($branch) ?></button>
-		<?php endforeach; ?>
-	</div>
-	<div class="fgroup">
-		<button type="button" class="chip toggle" id="only-bad" aria-pressed="false">problems only</button>
-		<?php if (isset($config['repos']['ppa'])): ?>
-		<button type="button" class="chip toggle" id="hide-ppa" aria-pressed="false" title="Hide <?= h($config['repos']['ppa']['label']) ?> everywhere: matrices, issues and todos">hide PPA</button>
-		<?php endif; ?>
-		<button type="button" class="chip" id="reset" title="Show everything: all repositories, distros, architectures and PHP branches">reset</button>
-	</div>
-	<span class="hint">click to toggle · shift-click for only this one · click a group name for all/none</span>
-</nav>
-
-<?php if ($issues['build']): ?>
-<h2 id="building">Building now <span class="count">queued or running on Launchpad, unbuilt packaging commits, or (dashed) probably building because the PPA is; affected cells are outlined</span></h2>
-<?= $issueList($issues['build']) ?>
-<?php endif; ?>
-
-<h2>Issues <span class="count" id="issue-count"><?= $issueCount($issues['main'], 'error') ?> errors · <?= $issueCount($issues['main'], 'warn') ?> warnings</span></h2>
-<?php if ($issues['main']): ?>
-	<?= $issueList($issues['main']) ?>
-<?php else: ?>
-	<p>No problems in the core/SAPI packages.</p>
-<?php endif; ?>
-
-<ul class="legend">
-	<li><b style="background:var(--ok-bg)"></b>latest</li>
-	<?php if ($upstream): ?><li><b style="background:var(--behind-bg);box-shadow:inset 3px 0 0 var(--bad-fg)"></b>behind php.net release</li><?php endif; ?>
-	<li><b style="background:var(--behind-bg)"></b>behind other distros</li>
-	<li><b style="background:var(--bad-bg)"></b>missing package(s) or older than other architectures</li>
-	<li><b class="unpub" style="background:repeating-linear-gradient(135deg, transparent 0 5px, var(--rule) 5px 7px)"></b>distribution not published</li>
-	<?php if ($issues['build']): ?><li><b class="building" style="background-color:var(--ok-bg);box-shadow:inset 0 0 0 2px var(--mark)"></b>build in progress</li><?php endif; ?>
-	<li><span class="mono">!</span> hover for details<?= $changelogs ? ' · click a version for its changelog' : '' ?></li>
-</ul>
-
-<?php foreach ($dists as $repoKey => $byCodename): $repo = $config['repos'][$repoKey]; ?>
-<section class="repo" data-repo="<?= h($repoKey) ?>" data-distro="<?= h(implode(' ', array_keys($byCodename))) ?>">
-<h2><?= h($repo['label']) ?> <a href="<?= h($repo['web'] ?? $repo['url']) ?>"><?= h($repo['web'] ?? $repo['url']) ?></a><?= $deprecatedTag($repo) ?></h2>
-<div class="scroll">
-<table class="matrix">
-	<thead>
-		<tr>
-			<th class="row" rowspan="2">PHP</th>
-			<?php foreach ($byCodename as $codename => $dist): ?>
-			<th class="dhead<?= $isSupported($codename) ? '' : ' dim' ?>" data-distro="<?= h($codename) ?>" colspan="<?= max(1, count($dist['archs'])) ?>">
-				<?= h($distroLabel($codename)) ?>
-				<small><?= $isSupported($codename) ? '' : 'unsupported · ' ?><?= $dist['published']
-					? h($dist['date'] ? 'updated ' . gmdate('Y-m-d H:i', strtotime($dist['date'])) : '')
-					: 'not published in this repository' ?></small>
-			</th>
-			<?php endforeach; ?>
-		</tr>
-		<tr>
-			<?php foreach ($byCodename as $codename => $dist): ?>
-				<?php if (!$dist['published']): ?><th class="arch" data-distro="<?= h($codename) ?>">—</th><?php endif; ?>
-				<?php foreach ($dist['archs'] as $arch): $unbuilt = in_array($arch, $dist['unbuilt'] ?? [], true); ?>
-				<th class="arch<?= $unbuilt ? ' dim' : '' ?>" data-distro="<?= h($codename) ?>" data-arch="<?= h($arch) ?>"<?= $unbuilt ? ' title="Listed in Release, but only arch:all packages"' : '' ?>><?= h($arch) ?><?= $unbuilt ? '<small>not built</small>' : '' ?></th>
-				<?php endforeach; ?>
-			<?php endforeach; ?>
-		</tr>
-	</thead>
-	<tbody>
-	<?php foreach ($branches as $branch):
-		$rowBad = false;
-		foreach ($cells[$repoKey] ?? [] as $codename => $byBranch) {
-			foreach ($byBranch[$branch] ?? [] as $cell) {
-				$rowBad = $rowBad || ($isSupported($codename) && STATE_RANK[$cell['state']] >= STATE_RANK['behind']);
-			}
-		}
-	?>
-		<tr data-branch="<?= h($branch) ?>"<?= $rowBad ? ' data-bad' : '' ?>>
-			<th class="row"<?= isset($upstream[$branch]['security_end']) ? ' title="' . h('php.net security support until ' . substr($upstream[$branch]['security_end'], 0, 10)) . '"' : '' ?>><?= h($branch) ?><?php
-				$st = $upstream[$branch]['state'] ?? null;
-				if ($st !== null && $st !== 'stable'): ?><small class="ustate u-<?= h($st) ?>"><?= $st === 'eol' ? 'EOL' : h($st) ?></small><?php endif; ?></th>
-			<?php foreach ($byCodename as $codename => $dist):
-				$dim = $isSupported($codename) ? '' : ' dim';
-				$clKey = isset($changelogs["$repoKey|$codename|$branch"]) ? "$repoKey|$codename|$branch" : null;
-				if (!$dist['published']) {
-					echo '<td class="unpub' . $dim . '" data-distro="' . h($codename) . '">not published</td>';
-				}
-				foreach ($dist['archs'] as $arch) {
-					$cell = $cells[$repoKey][$codename][$branch][$arch];
-					echo $cellHtml($cell, $dataAttrs(['distro' => $codename, 'arch' => $arch]), $dim, $cell['version'] !== null ? $clKey : null);
-				}
-			endforeach; ?>
-		</tr>
-	<?php endforeach; ?>
-	</tbody>
-</table>
-</div>
-</section>
-<?php endforeach; ?>
-
-<h2 id="other">All other packages <span class="count">one cell per distro · newest version across architectures<?= $watch ? ' · left bar: newer upstream release (debian/watch)' : '' ?></span></h2>
-<details class="other-issues">
-	<summary>Problems in other packages (<?= count($issues['other']) ?> groups)</summary>
-	<?= $issueList($issues['other']) ?>
-</details>
-<div class="pkgtools">
-	<input type="search" id="pkg-filter" placeholder="filter packages: redis, intl, libgd…">
-	<button type="button" id="expand">expand all</button>
-</div>
-
-<?php foreach ($others as $repoKey => $groups): $repo = $config['repos'][$repoKey]; $codenames = array_keys($dists[$repoKey]); ?>
-<section class="repo" data-repo="<?= h($repoKey) ?>" data-distro="<?= h(implode(' ', $codenames)) ?>">
-<h3><?= h($repo['label']) ?><?= $deprecatedTag($repo) ?></h3>
 <?php
-	$order = array_values(array_filter($branches, static fn ($b) => isset($groups[$b])));
-	if (isset($groups['other'])) {
-		$order[] = 'other';
-	}
-	foreach ($order as $group):
-		$rows = $groups[$group];
-		$bad = count(array_filter($rows, static fn ($r) => array_filter($r, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK['stale'])));
-?>
-<details class="pkgs"<?= $group === 'other' ? '' : ' data-branch="' . h($group) . '"' ?>>
-	<summary><?= $group === 'other' ? 'not tied to a PHP branch' : 'PHP ' . h($group) ?><span><?= count($rows) ?> packages</span><?= $bad ? "<span class=\"bad\">$bad with problems</span>" : '' ?></summary>
-	<div class="scroll">
-	<table>
-		<thead><tr>
-			<th class="row">package</th>
-			<?php foreach ($codenames as $codename): ?>
-			<th class="<?= $isSupported($codename) ? '' : 'dim' ?>" data-distro="<?= h($codename) ?>"><?= h($distroLabel($codename)) ?></th>
-			<?php endforeach; ?>
-		</tr></thead>
-		<tbody>
-		<?php foreach ($rows as $name => $byCodename):
-			$rowBad = (bool) array_filter($byCodename, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK['behind']);
-		?>
-			<tr data-name="<?= h($name) ?>"<?= $rowBad ? ' data-bad' : '' ?>>
-				<th class="row"><?= h($name) ?></th>
-				<?php foreach ($codenames as $codename):
-					$dim = $isSupported($codename) ? '' : ' dim';
-					echo $dists[$repoKey][$codename]['published']
-						? $cellHtml($byCodename[$codename], ' data-distro="' . h($codename) . '"', $dim)
-						: '<td class="unpub' . $dim . '" data-distro="' . h($codename) . '">not published</td>';
-				endforeach; ?>
-			</tr>
-		<?php endforeach; ?>
-		</tbody>
-	</table>
-	</div>
-</details>
-<?php endforeach; ?>
-</section>
-<?php endforeach; ?>
+}
 
-<h2 id="todo">Todo list <span class="count" id="todo-count"><?= count($todos) ?> items</span></h2>
-<div class="pkgtools">
-	<div class="fgroup" id="todo-types">
-		<?php foreach (TODO_TYPES as $type => $desc): if (isset($todoTypes[$type])): ?>
-		<button type="button" class="chip" data-type="<?= h($type) ?>" aria-pressed="true" title="<?= h($desc) ?>"><?= h($type) ?> <?= $todoTypes[$type] ?></button>
-		<?php endif; endforeach; ?>
-	</div>
-	<button type="button" id="todo-show-hidden" aria-pressed="false">show hidden (<span id="todo-hidden-count">0</span>)</button>
-</div>
-<?php if ($todos): ?>
-<div class="scroll">
-<table class="todo">
-	<thead><tr><th>type</th><th>source</th><th>repository</th><th>distros</th><th>description</th><th></th></tr></thead>
-	<tbody>
-	<?php foreach ($todos as $t):
-		$id = substr(sha1("{$t['type']}|{$t['repo']}|{$t['source']}|{$t['text']}|" . implode(' ', (array) ($t['tags']['distro'] ?? []))), 0, 12);
-		$url = $t['source'] !== '' ? $sourceUrl($t['repo'], $t['source']) : null;
+function render_script(array $changelogs): void
+{
 	?>
-		<tr class="t-<?= h(str_replace(' ', '-', $t['type'])) ?>" data-id="<?= $id ?>" data-type="<?= h($t['type']) ?>"<?= $dataAttrs($t['tags']) ?>>
-			<td class="type"><?= h($t['type']) ?></td>
-			<td class="src"><?= $t['source'] === '' ? '—' : ($url !== null ? '<a href="' . h($url) . '" target="_blank" rel="noopener">' . h($t['source']) . '</a>' : h($t['source'])) ?></td>
-			<td class="repo"><?= h($config['repos'][$t['repo']]['label']) ?></td>
-			<td class="dist"><?= h(implode(', ', (array) ($t['tags']['distro'] ?? []))) ?></td>
-			<td><?= h($t['text']) ?><?php foreach ($t['links'] as $label => $link): ?> <a href="<?= h($link) ?>" target="_blank" rel="noopener"><?= h($label) ?></a><?php endforeach; ?></td>
-			<td><button type="button" class="todo-hide">hide</button></td>
-		</tr>
-	<?php endforeach; ?>
-	</tbody>
-</table>
-</div>
-<?php else: ?>
-<p>Nothing to do.</p>
-<?php endif; ?>
-</main>
-
-<dialog id="changelog">
-	<header>
-		<div><h3 id="cl-title"></h3><div class="ver" id="cl-version"></div></div>
-		<button type="button" autofocus onclick="this.closest('dialog').close()">close</button>
-	</header>
-	<pre id="cl-text"></pre>
-	<footer><a id="cl-url" target="_blank" rel="noopener">full changelog ↗</a></footer>
-</dialog>
-
-<script>
-const CHANGELOGS = <?= json_encode($clData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+const CHANGELOGS = <?= json_encode($changelogs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
 
 // Changelog dialog
 const dialog = document.getElementById('changelog');
@@ -2412,37 +2650,5 @@ for (const part of location.hash.slice(1).split('&')) {
 	if (k === 'noppa') hidePpa?.setAttribute('aria-pressed', 'true');
 }
 apply();
-</script>
-</body>
-</html>
 <?php
-$html = ob_get_clean();
-
-// Drop cache entries nobody has used for a while.
-foreach (glob($config['cache_dir'] . '/*') ?: [] as $file) {
-	if (is_file($file) && time() - filemtime($file) > $config['cache_prune_days'] * 86400) {
-		unlink($file);
-	}
-}
-
-$output = $opts['output'] ?? ($isCli ? __DIR__ . '/matrix.html' : '-');
-if ($output === '-') {
-	echo $html;
-	exit(0);
-}
-
-if (file_put_contents($output, $html) === false) {
-	fail("Cannot write $output");
-}
-info("Wrote $output (" . count($issues['main']) . ' main issues, ' . count($issues['other']) . ' issue groups in other packages)');
-
-if (!isset($opts['no-publish'])) {
-	foreach ($config['publish'] as $target) {
-		// BatchMode: fail instead of prompting when run from cron.
-		$proc = proc_open(['scp', '-q', '-o', 'BatchMode=yes', $output, $target], [], $pipes);
-		if (!is_resource($proc) || proc_close($proc) !== 0) {
-			fail("scp to $target failed");
-		}
-		info("Published to $target");
-	}
 }
