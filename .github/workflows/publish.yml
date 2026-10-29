@@ -21,9 +21,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # sys_get_temp_dir(), so the script's cache lands where it is cached.
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
@@ -44,6 +41,9 @@ jobs:
           restore-keys: matrix-cache-
 
       - run: mkdir _site && php php-repo-matrix.php --no-publish --output=_site/index.html
+        env:
+          # sys_get_temp_dir(), so the script's cache lands in the cached path.
+          TMPDIR: ${{ runner.temp }}
 
       # Saved at most once an hour (the key is per hour); runs in between
       # refetch only what changed since.
