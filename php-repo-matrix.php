@@ -2687,8 +2687,12 @@ footer { font: 12px var(--mono); color: var(--muted); }
 	border-bottom: 3px solid var(--rule-strong); padding: 28px 0 12px; }
 .masthead h1 { margin: 0; font: 600 30px/1 var(--mono); letter-spacing: -.02em; }
 .masthead h1 span { color: var(--mark); }
-.masthead .stamp { font: 12px var(--mono); color: var(--muted); text-align: right; }
-.masthead p { grid-column: 1 / -1; margin: 6px 0 0; color: var(--muted); }
+.masthead .stamp { grid-column: 2; grid-row: 1 / 3; font: 12px var(--mono); color: var(--muted); text-align: right; }
+.masthead p { grid-column: 1; margin: 6px 0 0; color: var(--muted); }
+@media (max-width: 720px) {
+	.masthead { grid-template-columns: 1fr; }
+	.masthead .stamp { grid-column: 1; grid-row: auto; order: 1; margin-top: 6px; text-align: left; }
+}
 
 .support { margin: 14px 0 0; padding: 0 0 14px; border-bottom: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 4px 28px; }
 .support b { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; margin-right: 6px; }
@@ -2711,7 +2715,7 @@ h2 a.deprecated { font: 600 11px var(--mono); letter-spacing: .04em; text-transf
 h2 { font: 700 13px var(--sans); text-transform: uppercase; letter-spacing: .1em; margin: 40px 0 10px;
 	padding-top: 8px; border-top: 3px solid var(--rule-strong); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 h2 .count { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--muted); }
-h2 a { font: 400 12px var(--mono); letter-spacing: 0; text-transform: none; }
+h2 a { font: 400 12px var(--mono); letter-spacing: 0; text-transform: none; overflow-wrap: anywhere; }
 h3 { font: 600 16px var(--mono); margin: 28px 0 6px; }
 
 .issues { list-style: none; margin: 0; padding: 0; font: 13px/1.5 var(--mono); columns: 2 640px; column-gap: 32px; }
