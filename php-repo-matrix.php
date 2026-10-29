@@ -2720,7 +2720,7 @@ h3 { font: 600 16px var(--mono); margin: 28px 0 6px; }
 
 .issues { list-style: none; margin: 0; padding: 0; font: 13px/1.5 var(--mono); columns: 2 640px; column-gap: 32px; }
 .issues li { break-inside: avoid; padding: 5px 0 5px 14px; position: relative; overflow-wrap: anywhere; }
-.issues li + li { border-top: 1px solid var(--rule); }
+.issues li { border-top: 1px solid var(--rule); }
 .issues .ctx { display: block; font: 600 11px/1.4 var(--sans); letter-spacing: .02em; color: var(--muted); }
 .issues summary .ctx { display: inline; }
 .issues summary .ctx::after { content: ""; display: block; }
