@@ -1,0 +1,72 @@
+name: Publish
+
+on:
+  schedule:
+    # Every 15 minutes, off the top of the hour, where scheduled runs queue longest.
+    - cron: '7,22,37,52 * * * *'
+  push:
+    branches: [main]
+    paths: [php-repo-matrix.php]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time; a delayed run waits instead of racing the next one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # sys_get_temp_dir(), so the script's cache lands where it is cached.
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: none
+
+      # The newest cache from any earlier run. Without it every run would
+      # download all source packages again for their debian/watch files.
+      - id: cache-key
+        run: echo "key=matrix-cache-$(date -u +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+      - id: restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/php-repo-matrix-cache
+          key: ${{ steps.cache-key.outputs.key }}
+          restore-keys: matrix-cache-
+
+      - run: mkdir _site && php php-repo-matrix.php --no-publish --output=_site/index.html
+
+      # Saved at most once an hour (the key is per hour); runs in between
+      # refetch only what changed since.
+      - uses: actions/cache/save@v6
+        if: always() && steps.restore.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/php-repo-matrix-cache
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
