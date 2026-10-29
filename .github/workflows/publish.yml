@@ -3,7 +3,7 @@ name: Publish
 on:
   schedule:
     # Every 15 minutes, off the top of the hour, where scheduled runs queue longest.
-    - cron: '7,22,37,52 * * * *'
+    - cron: '8,23,38,53 * * * *'
   push:
     branches: [main]
     paths: [php-repo-matrix.php]
