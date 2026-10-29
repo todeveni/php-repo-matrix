@@ -177,6 +177,9 @@ $config = [
 	'publish' => [],
 
 	'freexian_url' => 'https://www.freexian.com/lts/php/',
+
+	// Linked in the header and footer of the report.
+	'source_url' => 'https://github.com/todeveni/php-repo-matrix',
 ];
 
 // ---------------------------------------------------------------------------
@@ -2115,6 +2118,8 @@ function build_view(array $config, array $report): array
 		'supported'     => implode(' · ', $supported),
 		'olderReleases' => $hasOlderReleases,
 		'freexianUrl'   => $config['freexian_url'],
+		'sourceUrl'     => $config['source_url'],
+		'sourceLabel'   => preg_replace('#^https?://#', '', $config['source_url']),
 		'ppaLabel'      => $config['repos']['ppa']['label'] ?? null,
 		'issues'        => $issues,
 		'issueCounts'   => ['error' => $issueCount('error'), 'warn' => $issueCount('warn')],
@@ -2414,7 +2419,7 @@ function render_page(array $view): string
 <main>
 <header class="masthead">
 	<h1>php<span>/</span>build-matrix</h1>
-	<div class="stamp">generated <?= h($view['generated']) ?> UTC<?php if ($view['buildCount'] !== null): ?><br><?php if ($view['buildCount']): ?><a href="#building"><?= $view['buildCount'] ?> source<?= $view['buildCount'] === 1 ? '' : 's' ?> building</a><?php else: ?>no builds in progress<?php endif; ?><?php endif; ?></div>
+	<div class="stamp">generated <?= h($view['generated']) ?> UTC<?php if ($view['buildCount'] !== null): ?><br><?php if ($view['buildCount']): ?><a href="#building"><?= $view['buildCount'] ?> source<?= $view['buildCount'] === 1 ? '' : 's' ?> building</a><?php else: ?>no builds in progress<?php endif; ?><?php endif; ?><br><a href="<?= h($view['sourceUrl']) ?>"><?= h($view['sourceLabel']) ?></a></div>
 	<p>Core and SAPI package versions per PHP branch, distribution and architecture in
 		<?= h(implode(' and ', $view['repoLabels'])) ?>.<br>
 		Tracked: <code><?= h($view['tracked']) ?></code></p>
@@ -2483,6 +2488,13 @@ function render_page(array $view): string
 <?php render_others($view); ?>
 
 <?php render_todos($view); ?>
+
+<hr>
+<footer>
+	generated <?= h($view['generated']) ?> UTC
+	· <a href="<?= h($view['sourceUrl']) ?>">source on GitHub</a>
+	· Toni Viemerö &lt;<a href="mailto:toni.viemero@iki.fi">toni.viemero@iki.fi</a>&gt;
+</footer>
 </main>
 
 <dialog id="changelog">
@@ -2668,6 +2680,8 @@ body { margin: 0; padding: 0 16px 64px; background: var(--paper); color: var(--i
 main { max-width: 1760px; margin: 0 auto; }
 a { color: var(--mark); text-underline-offset: 2px; }
 code, .mono { font-family: var(--mono); font-size: 12px; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 48px 0 12px; }
+footer { font: 12px var(--mono); color: var(--muted); }
 
 .masthead { display: grid; grid-template-columns: 1fr auto; gap: 4px 24px; align-items: end;
 	border-bottom: 3px solid var(--rule-strong); padding: 28px 0 12px; }
