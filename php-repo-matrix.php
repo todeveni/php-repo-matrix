@@ -103,7 +103,10 @@ $config = [
 			// them here is expected: they are not listed for this repo at all.
 			'last_release' => '24.04',
 			// Shown next to the repo wherever it is listed.
-			'deprecated' => ['text' => 'Moving Ubuntu from PPA to packages.sury.org', 'url' => 'https://codeberg.org/oerdnj/deb.sury.org/issues/73'],
+			'deprecated' => [
+				'text' => 'Moving Ubuntu from PPA to packages.sury.org',
+				'url'  => 'https://codeberg.org/oerdnj/deb.sury.org/issues/73',
+			],
 		],
 	],
 
@@ -183,7 +186,11 @@ $isCli = PHP_SAPI === 'cli';
 $opts = $isCli ? getopt('', ['output:', 'config:', 'no-cache', 'no-publish', 'include-unsupported', 'help']) : [];
 
 if (isset($opts['help'])) {
-	fwrite(STDOUT, "Usage: php " . basename(__FILE__) .  " [--output=file.html|-] [--config=file.php] [--no-cache] [--no-publish] [--include-unsupported]\n");
+	fwrite(
+		STDOUT,
+		'Usage: php ' . basename(__FILE__)
+			. " [--output=file.html|-] [--config=file.php] [--no-cache] [--no-publish] [--include-unsupported]\n"
+	);
 	exit(0);
 }
 
@@ -247,8 +254,14 @@ function cache_path(string $key, array $config): string
  * @param int|null              $ttl         defaults to cache_ttl
  * @return array<string, ?string> url => body, null when not found / failed
  */
-function fetch_all(array $urls, array $config, array $versionKeys = [], array $sha256 = [], ?string $userAgent = null, ?int $ttl = null): array
-{
+function fetch_all(
+	array $urls,
+	array $config,
+	array $versionKeys = [],
+	array $sha256 = [],
+	?string $userAgent = null,
+	?int $ttl = null
+): array {
 	$dir = $config['cache_dir'];
 	if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
 		fail("Cannot create cache dir $dir");
@@ -324,7 +337,10 @@ function fetch_all(array $urls, array $config, array $versionKeys = [], array $s
 			touch($file);
 			$results[$url] = file_get_contents($file);
 			$unchanged++;
-		} elseif ($code === 200 && is_string($body) && isset($sha256[$url]) && hash('sha256', $body) !== $sha256[$url]) {
+		} elseif (
+			$code === 200 && is_string($body) && isset($sha256[$url])
+			&& hash('sha256', $body) !== $sha256[$url]
+		) {
 			// Mirror updated between Release and index fetch; use it, but don't cache it.
 			info("Warning: $url does not match the SHA256 in Release, not caching");
 			$results[$url] = $body;
@@ -344,7 +360,10 @@ function fetch_all(array $urls, array $config, array $versionKeys = [], array $s
 		} else {
 			$stale = is_file($file) ? file_get_contents($file) : null;
 			$results[$url] = $stale === null || str_starts_with($stale, "MISSING\n") ? null : $stale;
-			info("Warning: $url -> HTTP $code " . curl_error($ch) . ($results[$url] !== null ? ' (using cached copy)' : ''));
+			info(
+				"Warning: $url -> HTTP $code " . curl_error($ch)
+					. ($results[$url] !== null ? ' (using cached copy)' : '')
+			);
 		}
 		curl_multi_remove_handle($mh, $ch);
 	}
@@ -555,7 +574,12 @@ function watch_mangle(string $rules, string $version): ?string
 			($m[2] ?? '') !== '' => '${' . $m[2] . '}',
 			default              => '\\' . $m[0],
 		}, $parts[1]);
-		$result = @preg_replace("\x01$parts[0]\x01" . str_replace('g', '', $f[0]), $replacement, $version, str_contains($f[0], 'g') ? -1 : 1);
+		$result = @preg_replace(
+			"\x01$parts[0]\x01" . str_replace('g', '', $f[0]),
+			$replacement,
+			$version,
+			str_contains($f[0], 'g') ? -1 : 1
+		);
 		if ($result === null) {
 			return null;
 		}
@@ -609,7 +633,12 @@ function watch_versions(string $body, string $baseUrl, string $pattern, bool $pl
 		foreach ($links as $href) {
 			$abs = resolve_url($baseUrl, $href);
 			$path = preg_replace('#^[a-z]+://[^/]+#i', '', $abs);
-			$candidates[] = [$href, $abs, $path, str_starts_with($path, $baseDir) ? substr($path, strlen($baseDir)) : $href];
+			$candidates[] = [
+				$href,
+				$abs,
+				$path,
+				str_starts_with($path, $baseDir) ? substr($path, strlen($baseDir)) : $href,
+			];
 		}
 	}
 	$regex = "\x01" . ($plain ? $pattern : "^(?:$pattern)$") . "\x01";
@@ -707,7 +736,11 @@ function deb_split(string $version): array
 // php.net version in Debian form: 8.6.0RC4 => 8.6.0~rc4, so it sorts before 8.6.0.
 function upstream_to_deb(string $version): string
 {
-	return preg_replace_callback('/(alpha|beta|RC)(\d+)$/i', static fn ($m) => '~' . strtolower($m[1]) . $m[2], $version);
+	return preg_replace_callback(
+		'/(alpha|beta|RC)(\d+)$/i',
+		static fn ($m) => '~' . strtolower($m[1]) . $m[2],
+		$version
+	);
 }
 
 function deb_version_compare(string $a, string $b): int
@@ -728,7 +761,11 @@ function deb_version_compare(string $a, string $b): int
 function base_version(string $version): string
 {
 	$version = preg_replace('/^\d+:/', '', $version);
-	return preg_replace('/(?:\+(?:0~\d|debian\d|ubuntu\d|deb\d|deb\.sury\.org)|~(?:bpo|deb|ubuntu)\d).*$/', '', $version);
+	return preg_replace(
+		'/(?:\+(?:0~\d|debian\d|ubuntu\d|deb\d|deb\.sury\.org)|~(?:bpo|deb|ubuntu)\d).*$/',
+		'',
+		$version
+	);
 }
 
 function max_version(array $versions): ?string
@@ -740,6 +777,16 @@ function max_version(array $versions): ?string
 		}
 	}
 	return $max;
+}
+
+/** "8.3.1 on bookworm, trixie; 8.3.0 on jammy" from version => [codename, ...]. */
+function versions_on(array $byVersion): string
+{
+	$parts = [];
+	foreach ($byVersion as $version => $codenames) {
+		$parts[] = "$version on " . implode(', ', $codenames);
+	}
+	return implode('; ', $parts);
 }
 
 /** Cell states, most severe first. */
@@ -832,11 +879,22 @@ foreach ($scan as $repoKey => $codenames) {
 		}
 		$fields = parse_release($body);
 		$archs = preg_split('/\s+/', trim($fields['Architectures'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
-		$archs = array_values(array_diff($archs, ['all'], $config['exclude_architectures'], $config['exclude_codename_architectures'][$codename] ?? []));
+		$archs = array_diff(
+			$archs,
+			['all'],
+			$config['exclude_architectures'],
+			$config['exclude_codename_architectures'][$codename] ?? []
+		);
+		$archs = array_values($archs);
 		if ($config['architectures'] !== null) {
 			$archs = array_values(array_intersect($archs, $config['architectures']));
 		}
-		$dists[$repoKey][$codename] = ['published' => true, 'date' => $fields['Date'] ?? null, 'archs' => $archs, 'failed' => []];
+		$dists[$repoKey][$codename] = [
+			'published' => true,
+			'date'      => $fields['Date'] ?? null,
+			'archs'     => $archs,
+			'failed'    => [],
+		];
 		$hashes = release_sha256($body);
 		$paths = array_map(static fn ($arch) => "$component/binary-$arch/Packages.gz", $archs);
 		$paths[] = "$component/source/Sources.gz";
@@ -911,7 +969,10 @@ foreach ($branches as $branch) {
 
 // Which branch a non-SAPI package belongs to (php8.3-redis, php8.3-intl, ...).
 $branchOf = static function (string $name) use ($sourceOf): ?string {
-	if (preg_match('/^php(\d+\.\d+)$/', $sourceOf[$name] ?? '', $m) || preg_match('/php(\d+\.\d+)(?:-|$)/', $name, $m)) {
+	if (
+		preg_match('/^php(\d+\.\d+)$/', $sourceOf[$name] ?? '', $m)
+		|| preg_match('/php(\d+\.\d+)(?:-|$)/', $name, $m)
+	) {
 		return $m[1];
 	}
 	return null;
@@ -945,11 +1006,13 @@ if ($config['changelog_entries'] > 0) {
 				} elseif ($cl['type'] === 'pool') {
 					foreach ($src['files'] as $file) {
 						if (str_ends_with($file, '.debian.tar.xz')) {
-							$tarballs[$key] = rtrim($config['repos'][$repoKey]['url'], '/') . '/' . $src['directory'] . '/' . rawurlencode($file);
+							$tarballs[$key] = rtrim($config['repos'][$repoKey]['url'], '/') . '/' . $src['directory']
+								. '/' . rawurlencode($file);
 						}
 					}
 					if ($src['vcs'] !== null) {
-						$changelogs[$key]['url'] = str_replace('/-/tree/', '/-/blob/', $src['vcs']) . '/debian/changelog';
+						$changelogs[$key]['url'] = str_replace('/-/tree/', '/-/blob/', $src['vcs'])
+							. '/debian/changelog';
 					}
 				}
 			}
@@ -958,7 +1021,13 @@ if ($config['changelog_entries'] > 0) {
 
 	info('Fetching ' . (count($lpQueries) + count($tarballs)) . ' changelog sources...');
 	// The publication of a given source version doesn't change.
-	$lpResults = fetch_all($lpQueries, $config, array_map(static fn ($key) => $changelogs[$key]['version'], array_flip($lpQueries)), [], 'php-build-matrix/1.0');
+	$lpResults = fetch_all(
+		$lpQueries,
+		$config,
+		array_map(static fn ($key) => $changelogs[$key]['version'], array_flip($lpQueries)),
+		[],
+		'php-build-matrix/1.0'
+	);
 	$lpChangelogUrls = [];
 	foreach ($lpQueries as $key => $url) {
 		$json = json_decode((string) ($lpResults[$url] ?? ''), true);
@@ -979,7 +1048,9 @@ if ($config['changelog_entries'] > 0) {
 	}
 	$tarTexts = fetch_all($tarballs, $config, array_fill_keys($tarballs, 'v'));
 	foreach ($tarballs as $key => $url) {
-		$text = isset($tarTexts[$url]) ? file_from_debian_tar($tarTexts[$url], 'debian/changelog', $config['cache_dir']) : null;
+		$text = isset($tarTexts[$url])
+			? file_from_debian_tar($tarTexts[$url], 'debian/changelog', $config['cache_dir'])
+			: null;
 		if ($text !== null) {
 			$changelogs[$key]['text'] = changelog_head($text, $config['changelog_entries']);
 		}
@@ -1017,7 +1088,10 @@ while ($buildPages) {
 			$codename = basename((string) $b['distro_series_link']);
 			$source = $b['source_package_name'];
 			$prev = $building[$repoKey][$codename][$source][$b['arch_tag']] ?? null;
-			if (isset($dists[$repoKey][$codename]) && ($prev === null || deb_version_compare($b['source_package_version'], $prev['version']) > 0)) {
+			if (
+				isset($dists[$repoKey][$codename])
+				&& ($prev === null || deb_version_compare($b['source_package_version'], $prev['version']) > 0)
+			) {
 				$since = $b['date_started'] ?? $b['datecreated'] ?? null;
 				$building[$repoKey][$codename][$source][$b['arch_tag']] = [
 					'kind'    => 'launchpad',
@@ -1050,7 +1124,10 @@ foreach ($config['repos'] as $repoKey => $repo) {
 	}
 	foreach ($sources[$repoKey] ?? [] as $codename => $srcs) {
 		foreach ($srcs as $source => $src) {
-			if (preg_match('#^(https://[^/]+)/(.+?)/-/tree/(.+)$#', (string) $src['vcs'], $m) && preg_match('/\.gbp([0-9a-f]+)$/', $src['version'], $g)) {
+			if (
+				preg_match('#^(https://[^/]+)/(.+?)/-/tree/(.+)$#', (string) $src['vcs'], $m)
+				&& preg_match('/\.gbp([0-9a-f]+)$/', $src['version'], $g)
+			) {
 				$api = "$m[1]/api/v4/projects/" . rawurlencode($m[2]) . '/repository/branches/' . rawurlencode($m[3]);
 				$branchApi[$api][] = [$repoKey, $codename, $source, $g[1], $m[3], $src['vcs']];
 			}
@@ -1082,7 +1159,8 @@ if ($branchApi) {
 					'state'   => 'Not built yet',
 					'since'   => $commit['committed_date'],
 					'url'     => $commit['web_url'] ?? $web,
-					'note'    => "Not built yet: $branch is at $short ($date UTC, " . ($commit['title'] ?? '') . "), published build is from $built",
+					'note'    => "Not built yet: $branch is at $short ($date UTC, " . ($commit['title'] ?? '')
+						. "), published build is from $built",
 				];
 			}
 		}
@@ -1097,7 +1175,11 @@ foreach ($config['repos'] as $repoKey => $repo) {
 	foreach ($building[$proxy] ?? [] as $bySource) {
 		foreach ($bySource as $source => $byArch) {
 			foreach ($byArch as $b) {
-				if ($b['kind'] === 'launchpad' && (!isset($newest[$source]) || deb_version_compare(base_version($b['version']), base_version($newest[$source]['version'])) > 0)) {
+				if ($b['kind'] !== 'launchpad') {
+					continue;
+				}
+				$newestVersion = isset($newest[$source]) ? base_version($newest[$source]['version']) : null;
+				if ($newestVersion === null || deb_version_compare(base_version($b['version']), $newestVersion) > 0) {
 					$newest[$source] = $b;
 				}
 			}
@@ -1107,7 +1189,9 @@ foreach ($config['repos'] as $repoKey => $repo) {
 		$newer = base_version($b['version']);
 		foreach ($sources[$repoKey] ?? [] as $codename => $srcs) {
 			if (
-				!isset($srcs[$source]) || isset($vcsChecked["$repoKey|$codename|$source"]) || isset($building[$repoKey][$codename][$source])
+				!isset($srcs[$source])
+				|| isset($vcsChecked["$repoKey|$codename|$source"])
+				|| isset($building[$repoKey][$codename][$source])
 				|| deb_version_compare(base_version($srcs[$source]['version']), $newer) >= 0
 			) {
 				continue;
@@ -1135,13 +1219,21 @@ if ($config['upstream'] !== null) {
 	$upstreamData = fetch_all(array_values($config['upstream']), $config, [], [], 'php-build-matrix/1.0');
 	foreach (json_decode((string) ($upstreamData[$config['upstream']['branches']] ?? ''), true) ?: [] as $b) {
 		if (isset($b['branch'], $b['latest'])) {
-			$upstream[$b['branch']] = ['latest' => $b['latest'], 'state' => $b['state'] ?? null, 'date' => null, 'security_end' => $b['security_support_end'] ?? null];
+			$upstream[$b['branch']] = [
+				'latest'       => $b['latest'],
+				'state'        => $b['state'] ?? null,
+				'date'         => null,
+				'security_end' => $b['security_support_end'] ?? null,
+			];
 		}
 	}
 	// active.php is cached for minutes rather than days, so it wins for supported branches.
 	foreach (json_decode((string) ($upstreamData[$config['upstream']['active']] ?? ''), true) ?: [] as $byBranch) {
 		foreach ((array) $byBranch as $branch => $r) {
-			if (isset($r['version']) && (!isset($upstream[$branch]) || version_compare($r['version'], $upstream[$branch]['latest'], '>='))) {
+			if (
+				isset($r['version'])
+				&& (!isset($upstream[$branch]) || version_compare($r['version'], $upstream[$branch]['latest'], '>='))
+			) {
 				$upstream[$branch]['latest'] = $r['version'];
 				$upstream[$branch]['date'] = isset($r['date']) ? (strtotime($r['date'] . ' UTC') ?: null) : null;
 			}
@@ -1155,7 +1247,9 @@ if ($config['upstream'] !== null) {
 			&& (!isset($upstream[$m[1]]['latest']) || version_compare($version, $upstream[$m[1]]['latest'], '>'))
 		) {
 			$upstream[$m[1]]['latest'] = $version;
-			$upstream[$m[1]]['date'] = isset($r['release']['date']) ? (strtotime($r['release']['date'] . ' UTC') ?: null) : null;
+			$upstream[$m[1]]['date'] = isset($r['release']['date'])
+				? (strtotime($r['release']['date'] . ' UTC') ?: null)
+				: null;
 		}
 	}
 	if (!$upstream) {
@@ -1181,7 +1275,8 @@ if ($config['watch_ttl'] !== null) {
 				}
 				foreach ($src['files'] as $file) {
 					if (str_ends_with($file, '.debian.tar.xz')) {
-						$tarballs["$repoKey|$codename|$source"] = rtrim($config['repos'][$repoKey]['url'], '/') . '/' . $src['directory'] . '/' . rawurlencode($file);
+						$tarballs["$repoKey|$codename|$source"] = rtrim($config['repos'][$repoKey]['url'], '/') . '/'
+							. $src['directory'] . '/' . rawurlencode($file);
 					}
 				}
 			}
@@ -1201,11 +1296,19 @@ if ($config['watch_ttl'] !== null) {
 			$newTarballs[$key] = $url;
 		}
 	}
-	info('Fetching ' . count($newTarballs) . ' new source packages for debian/watch (' . count($watchTexts) . ' known)...');
+	info(
+		'Fetching ' . count($newTarballs) . ' new source packages for debian/watch ('
+			. count($watchTexts) . ' known)...'
+	);
 	$tarBodies = fetch_all($newTarballs, $config, array_fill_keys($newTarballs, 'v'));
 	foreach ($newTarballs as $key => $url) {
 		if (!isset($tarBodies[$url])) {
-			$watch[$key] = ['packaged' => null, 'latest' => null, 'url' => null, 'error' => 'source package not available'];
+			$watch[$key] = [
+				'packaged' => null,
+				'latest'   => null,
+				'url'      => null,
+				'error'    => 'source package not available',
+			];
 			continue;
 		}
 		$text = file_from_debian_tar($tarBodies[$url], 'debian/watch', $config['cache_dir']);
@@ -1221,7 +1324,12 @@ if ($config['watch_ttl'] !== null) {
 	$pageUrls = [];
 	foreach ($watchTexts as $key => $text) {
 		[$repoKey, $codename, $source] = explode('|', $key);
-		$w = ['packaged' => deb_split($sources[$repoKey][$codename][$source]['version'])[1], 'latest' => null, 'url' => null, 'error' => null];
+		$w = [
+			'packaged' => deb_split($sources[$repoKey][$codename][$source]['version'])[1],
+			'latest'   => null,
+			'url'      => null,
+			'error'    => null,
+		];
 		$lines = $text === null ? [] : parse_watch($text);
 		if ($text === null) {
 			$w['error'] = 'no debian/watch';
@@ -1242,7 +1350,9 @@ if ($config['watch_ttl'] !== null) {
 			}
 			$name = $peclName($line['url']);
 			$lines[$i]['pecl'] = $name;
-			$lines[$i]['fetch'] = $name !== null ? 'https://pecl.php.net/rest/r/' . strtolower($name) . '/allreleases.xml' : $line['url'];
+			$lines[$i]['fetch'] = $name !== null
+				? 'https://pecl.php.net/rest/r/' . strtolower($name) . '/allreleases.xml'
+				: $line['url'];
 			$pageUrls[] = $lines[$i]['fetch'];
 		}
 		if ($w['error'] === null && isset($lines[0]['opts']['dversionmangle'])) {
@@ -1289,9 +1399,11 @@ if ($config['watch_ttl'] !== null) {
 				'@PACKAGE@'       => preg_quote($source),
 				'@ANY_VERSION@'   => '[-_]?(\d[\-+\.:\~\da-zA-Z]*)',
 				'@ARCHIVE_EXT@'   => '(?i:\.(?:tar\.xz|tar\.bz2|tar\.gz|tar\.zstd?|zip|tgz|tbz|txz))',
-				'@SIGNATURE_EXT@' => '(?i:\.(?:tar\.xz|tar\.bz2|tar\.gz|tar\.zstd?|zip|tgz|tbz|txz))(?:\.(?:asc|pgp|gpg|sig|sign))',
+				'@SIGNATURE_EXT@' => '(?i:\.(?:tar\.xz|tar\.bz2|tar\.gz|tar\.zstd?|zip|tgz|tbz|txz))'
+					. '(?:\.(?:asc|pgp|gpg|sig|sign))',
 			]);
-			$found = watch_versions($body, $line['url'], $pattern, ($line['opts']['searchmode'] ?? 'html') === 'plain', $links);
+			$plain = ($line['opts']['searchmode'] ?? 'html') === 'plain';
+			$found = watch_versions($body, $line['url'], $pattern, $plain, $links);
 			if (!$found) {
 				$error = 'no release matches the debian/watch pattern';
 			}
@@ -1344,7 +1456,14 @@ foreach ($pkgs as $repoKey => $byCodename) {
 $issues = ['main' => [], 'other' => [], 'build' => []];
 // $tags (repo / distro / arch / branch) drive the filters in the report.
 // $links (label => url) are appended to the text.
-$addIssue = static function (string $group, string $level, string $text, array $tags, array $items = [], array $links = []) use (&$issues): void {
+$addIssue = static function (
+	string $group,
+	string $level,
+	string $text,
+	array $tags,
+	array $items = [],
+	array $links = []
+) use (&$issues): void {
 	$issues[$group][] = ['level' => $level, 'text' => $text, 'tags' => $tags, 'items' => $items, 'links' => $links];
 };
 
@@ -1366,8 +1485,22 @@ $todoNames = static function (array $names): string {
 	$plain = array_values(array_filter($names, static fn ($n) => !str_ends_with($n, '-dbgsym'))) ?: $names;
 	return implode(', ', array_slice($plain, 0, 6)) . (count($plain) > 6 ? ' … (+' . (count($plain) - 6) . ')' : '');
 };
-$addTodo = static function (string $type, string $repoKey, string $source, string $text, array $tags = [], array $links = []) use (&$todos): void {
-	$todos[] = ['type' => $type, 'repo' => $repoKey, 'source' => $source, 'text' => $text, 'tags' => $tags + ['repo' => $repoKey], 'links' => $links];
+$addTodo = static function (
+	string $type,
+	string $repoKey,
+	string $source,
+	string $text,
+	array $tags = [],
+	array $links = []
+) use (&$todos): void {
+	$todos[] = [
+		'type'   => $type,
+		'repo'   => $repoKey,
+		'source' => $source,
+		'text'   => $text,
+		'tags'   => $tags + ['repo' => $repoKey],
+		'links'  => $links,
+	];
 };
 
 foreach ($building as $repoKey => $byCodename) {
@@ -1389,7 +1522,12 @@ foreach ($building as $repoKey => $byCodename) {
 				'build',
 				'build',
 				distro_label($codename, $config) . " · $repoLabel: $source " . implode(', ', $versions),
-				['repo' => $repoKey, 'distro' => $codename, 'arch' => array_keys($byArch), 'branch' => array_filter([$branchOf($source)])],
+				[
+					'repo'   => $repoKey,
+					'distro' => $codename,
+					'arch'   => array_keys($byArch),
+					'branch' => array_filter([$branchOf($source)]),
+				],
 				[],
 				$links,
 			);
@@ -1408,17 +1546,39 @@ foreach ($dists as $repoKey => $byCodename) {
 
 		if (!$dist['published']) {
 			if ($supported) {
-				$addIssue('main', 'error', distro_label($codename, $config) . ": no packages in $repoLabel (distribution not published)", ['repo' => $repoKey, 'distro' => $codename]);
+				$addIssue(
+					'main',
+					'error',
+					distro_label($codename, $config) . ": no packages in $repoLabel (distribution not published)",
+					['repo' => $repoKey, 'distro' => $codename]
+				);
 				$addTodo('unpublished', $repoKey, '', 'distribution not published', ['distro' => $codename]);
 			}
 			continue;
 		}
 		foreach ($dist['failed'] as $arch) {
-			$addIssue('main', 'error', "$where: could not fetch/decode Packages for $arch", ['repo' => $repoKey, 'distro' => $codename, 'arch' => [$arch]]);
+			$addIssue(
+				'main',
+				'error',
+				"$where: could not fetch/decode Packages for $arch",
+				['repo' => $repoKey, 'distro' => $codename, 'arch' => [$arch]]
+			);
 		}
 		if ($supported && $dist['unbuilt']) {
-			$addIssue('main', 'warn', "$where: " . implode(', ', $dist['unbuilt']) . ' listed in Release, but nothing is built for it (only arch:all packages)', ['repo' => $repoKey, 'distro' => $codename, 'arch' => $dist['unbuilt']]);
-			$addTodo('missing build', $repoKey, '', 'nothing built for ' . implode(', ', $dist['unbuilt']) . ' (only arch:all packages)', ['distro' => $codename, 'arch' => $dist['unbuilt']]);
+			$addIssue(
+				'main',
+				'warn',
+				"$where: " . implode(', ', $dist['unbuilt'])
+					. ' listed in Release, but nothing is built for it (only arch:all packages)',
+				['repo' => $repoKey, 'distro' => $codename, 'arch' => $dist['unbuilt']]
+			);
+			$addTodo(
+				'missing build',
+				$repoKey,
+				'',
+				'nothing built for ' . implode(', ', $dist['unbuilt']) . ' (only arch:all packages)',
+				['distro' => $codename, 'arch' => $dist['unbuilt']]
+			);
 		}
 		$notBuilt = []; // arch => [branch, ...]
 
@@ -1432,7 +1592,11 @@ foreach ($dists as $repoKey => $byCodename) {
 			}
 			if (!$union) {
 				foreach ($dist['archs'] as $arch) {
-					$cells[$repoKey][$codename][$branch][$arch] = ['version' => null, 'state' => 'absent', 'notes' => []];
+					$cells[$repoKey][$codename][$branch][$arch] = [
+						'version' => null,
+						'state'   => 'absent',
+						'notes'   => [],
+					];
 				}
 				continue;
 			}
@@ -1469,9 +1633,13 @@ foreach ($dists as $repoKey => $byCodename) {
 						$cell['notes'][] = "{$latestBranch[$branch]} is available for other distros";
 					}
 					$up = $upstream[$branch] ?? null;
-					if ($supported && $up !== null && deb_version_compare(deb_split($cell['version'])[1], upstream_to_deb($up['latest'])) < 0) {
+					if (
+						$supported && $up !== null
+						&& deb_version_compare(deb_split($cell['version'])[1], upstream_to_deb($up['latest'])) < 0
+					) {
 						$cell['state'] = worse($cell['state'], 'upstream');
-						$cell['notes'][] = "php.net released {$up['latest']}" . ($up['date'] ? ' on ' . gmdate('Y-m-d', $up['date']) : '');
+						$cell['notes'][] = "php.net released {$up['latest']}"
+							. ($up['date'] ? ' on ' . gmdate('Y-m-d', $up['date']) : '');
 						$upstreamLag[$repoKey][$branch][$codename] = deb_split($cell['version'])[1];
 					}
 				}
@@ -1487,27 +1655,88 @@ foreach ($dists as $repoKey => $byCodename) {
 			$prefix = "$where · PHP $branch";
 			$tags = ['repo' => $repoKey, 'distro' => $codename, 'branch' => [$branch]];
 			foreach ($problems['partial'] as $arch => $lacking) {
-				$addIssue('main', 'error', "$prefix: $arch is missing " . implode(', ', $lacking) . $buildNote([$arch]), $tags + ['arch' => [$arch]]);
-				$addTodo('missing build', $repoKey, "php$branch", "$arch is missing " . $todoNames($lacking) . $buildNote([$arch]), $tags + ['arch' => [$arch]]);
+				$addIssue(
+					'main',
+					'error',
+					"$prefix: $arch is missing " . implode(', ', $lacking) . $buildNote([$arch]),
+					$tags + ['arch' => [$arch]]
+				);
+				$addTodo(
+					'missing build',
+					$repoKey,
+					"php$branch",
+					"$arch is missing " . $todoNames($lacking) . $buildNote([$arch]),
+					$tags + ['arch' => [$arch]]
+				);
 			}
 			if ($problems['stale']) {
-				$addIssue('main', 'error', "$prefix: outdated on " . implode(', ', array_unique($problems['stale'])) . " (newest here is $distroMax)" . $buildNote($problems['stale']), $tags + ['arch' => array_values(array_unique($problems['stale']))]);
-				$addTodo('outdated build', $repoKey, "php$branch", 'outdated on ' . implode(', ', array_unique($problems['stale'])) . ' (newest here is ' . base_version($distroMax) . ')' . $buildNote($problems['stale']), $tags + ['arch' => array_values(array_unique($problems['stale']))]);
+				$staleArchs = array_values(array_unique($problems['stale']));
+				$addIssue(
+					'main',
+					'error',
+					"$prefix: outdated on " . implode(', ', $staleArchs) . " (newest here is $distroMax)"
+						. $buildNote($staleArchs),
+					$tags + ['arch' => $staleArchs]
+				);
+				$addTodo(
+					'outdated build',
+					$repoKey,
+					"php$branch",
+					'outdated on ' . implode(', ', $staleArchs) . ' (newest here is ' . base_version($distroMax) . ')'
+						. $buildNote($staleArchs),
+					$tags + ['arch' => $staleArchs]
+				);
 			}
 			if ($sourceVersion !== null && deb_version_compare($distroMax, $sourceVersion) < 0) {
-				$addIssue('main', 'error', "$prefix: source $sourceVersion is published, but binaries are only at $distroMax" . $buildNote($dist['archs']), $tags);
-				$addTodo('missing build', $repoKey, "php$branch", 'source ' . base_version($sourceVersion) . ' is published, but binaries are only at ' . base_version($distroMax) . $buildNote($dist['archs']), $tags);
+				$addIssue(
+					'main',
+					'error',
+					"$prefix: source $sourceVersion is published, but binaries are only at $distroMax"
+						. $buildNote($dist['archs']),
+					$tags
+				);
+				$addTodo(
+					'missing build',
+					$repoKey,
+					"php$branch",
+					'source ' . base_version($sourceVersion) . ' is published, but binaries are only at '
+						. base_version($distroMax) . $buildNote($dist['archs']),
+					$tags
+				);
 			}
 			if (deb_version_compare(base_version($distroMax), $latestBranch[$branch]) < 0) {
-				$addIssue('main', 'warn', "$prefix: newest is " . base_version($distroMax) . ", but {$latestBranch[$branch]} is available for other distros", $tags);
-				$addTodo('behind', $repoKey, "php$branch", 'newest is ' . base_version($distroMax) . ", other distros have {$latestBranch[$branch]}", $tags);
+				$addIssue(
+					'main',
+					'warn',
+					"$prefix: newest is " . base_version($distroMax)
+						. ", but {$latestBranch[$branch]} is available for other distros",
+					$tags
+				);
+				$addTodo(
+					'behind',
+					$repoKey,
+					"php$branch",
+					'newest is ' . base_version($distroMax) . ", other distros have {$latestBranch[$branch]}",
+					$tags
+				);
 			}
 		}
 		if ($supported) {
 			foreach ($notBuilt as $arch => $list) {
-				$addIssue('main', 'error', "$where: PHP " . implode(', ', $list) . " not built for $arch (available on other architectures)", ['repo' => $repoKey, 'distro' => $codename, 'arch' => [$arch], 'branch' => $list]);
+				$addIssue(
+					'main',
+					'error',
+					"$where: PHP " . implode(', ', $list) . " not built for $arch (available on other architectures)",
+					['repo' => $repoKey, 'distro' => $codename, 'arch' => [$arch], 'branch' => $list]
+				);
 				foreach ($list as $branch) {
-					$addTodo('missing build', $repoKey, "php$branch", "not built for $arch (available on other architectures)", ['distro' => $codename, 'arch' => [$arch], 'branch' => [$branch]]);
+					$addTodo(
+						'missing build',
+						$repoKey,
+						"php$branch",
+						"not built for $arch (available on other architectures)",
+						['distro' => $codename, 'arch' => [$arch], 'branch' => [$branch]]
+					);
 				}
 			}
 		}
@@ -1522,19 +1751,37 @@ foreach ($upstreamLag as $repoKey => $byBranch) {
 		foreach ($byCodename as $codename => $v) {
 			$byVersion[$v][] = $codename;
 		}
-		$have = implode('; ', array_map(static fn ($v, $c) => "$v on " . implode(', ', $c), array_keys($byVersion), $byVersion));
-		$text = "php.net released {$up['latest']}" . ($up['date'] ? ' on ' . gmdate('Y-m-d', $up['date']) : '') . ", packaged is $have"
-			. (isset($building[$repoKey]) && array_filter(array_keys($byCodename), static fn ($c) => isset($building[$repoKey][$c]["php$branch"])) ? ' · build in progress' : '');
-		$addIssue('main', 'error', "{$config['repos'][$repoKey]['label']} · PHP $branch: $text", ['repo' => $repoKey, 'distro' => array_keys($byCodename), 'branch' => [$branch]]);
-		$addTodo('new upstream', $repoKey, "php$branch", $text, ['distro' => array_keys($byCodename), 'branch' => [$branch]]);
+		$anyBuilding = array_filter(
+			array_keys($byCodename),
+			static fn ($c) => isset($building[$repoKey][$c]["php$branch"])
+		);
+		$text = "php.net released {$up['latest']}" . ($up['date'] ? ' on ' . gmdate('Y-m-d', $up['date']) : '')
+			. ', packaged is ' . versions_on($byVersion) . ($anyBuilding ? ' · build in progress' : '');
+		$addIssue(
+			'main',
+			'error',
+			"{$config['repos'][$repoKey]['label']} · PHP $branch: $text",
+			['repo' => $repoKey, 'distro' => array_keys($byCodename), 'branch' => [$branch]]
+		);
+		$addTodo('new upstream', $repoKey, "php$branch", $text, [
+			'distro' => array_keys($byCodename),
+			'branch' => [$branch],
+		]);
 	}
 }
 
 foreach ($unbuiltCommits as [$repoKey, $codename, $source, $branch, $short, $date]) {
 	if (is_supported($codename, $config) && time() - strtotime($date) > $config['vcs_build_hours'] * 3600) {
-		$text = "$branch is at $short (" . gmdate('Y-m-d H:i', strtotime($date)) . ' UTC), still not built — failed build?';
-		$addIssue('main', 'warn', distro_label($codename, $config) . " · {$config['repos'][$repoKey]['label']} · $source: $text", ['repo' => $repoKey, 'distro' => $codename, 'branch' => array_filter([$branchOf($source)])]);
-		$addTodo('vcs', $repoKey, $source, $text, ['distro' => $codename, 'branch' => array_filter([$branchOf($source)])]);
+		$text = "$branch is at $short (" . gmdate('Y-m-d H:i', strtotime($date))
+			. ' UTC), still not built — failed build?';
+		$tags = ['distro' => $codename, 'branch' => array_filter([$branchOf($source)])];
+		$addIssue(
+			'main',
+			'warn',
+			distro_label($codename, $config) . " · {$config['repos'][$repoKey]['label']} · $source: $text",
+			['repo' => $repoKey] + $tags
+		);
+		$addTodo('vcs', $repoKey, $source, $text, $tags);
 	}
 }
 
@@ -1576,10 +1823,23 @@ foreach ($config['distros'] as $codename => $_) {
 			return false;
 		});
 		if ($has && count($has) < count($inRepos)) {
-			$labels = static fn ($keys) => implode(', ', array_map(static fn ($k) => $config['repos'][$k]['label'], $keys));
-			$addIssue('main', 'warn', distro_label($codename, $config) . " · PHP $branch: in " . $labels($has) . ' but not in ' . $labels(array_diff($inRepos, $has)), ['repo' => $inRepos, 'distro' => $codename, 'branch' => [$branch]]);
+			$labels = static fn ($keys)
+				=> implode(', ', array_map(static fn ($k) => $config['repos'][$k]['label'], $keys));
+			$addIssue(
+				'main',
+				'warn',
+				distro_label($codename, $config) . " · PHP $branch: in " . $labels($has)
+					. ' but not in ' . $labels(array_diff($inRepos, $has)),
+				['repo' => $inRepos, 'distro' => $codename, 'branch' => [$branch]]
+			);
 			foreach (array_diff($inRepos, $has) as $repoKey) {
-				$addTodo('repo sync', $repoKey, "php$branch", 'available in ' . $labels($has) . ' only', ['distro' => $codename, 'branch' => [$branch]]);
+				$addTodo(
+					'repo sync',
+					$repoKey,
+					"php$branch",
+					'available in ' . $labels($has) . ' only',
+					['distro' => $codename, 'branch' => [$branch]]
+				);
 			}
 		}
 	}
@@ -1614,7 +1874,10 @@ foreach ($pkgs as $repoKey => $byCodename) {
 			}
 			$max = max_version($versions);
 			$cell = ['version' => $max, 'state' => 'absent', 'notes' => []];
-			$inProgress = array_intersect_key($building[$repoKey][$codename][$sourceOf[$name] ?? $name] ?? [], $versions);
+			$inProgress = array_intersect_key(
+				$building[$repoKey][$codename][$sourceOf[$name] ?? $name] ?? [],
+				$versions
+			);
 			// A build doesn't tell which binaries it will add, so only mark existing ones.
 			if ($inProgress && $max !== null) {
 				$cell['building'] = reset($inProgress);
@@ -1623,7 +1886,8 @@ foreach ($pkgs as $repoKey => $byCodename) {
 			if ($max !== null) {
 				$cell['state'] = 'ok';
 				$missing = array_keys(array_filter($versions, static fn ($v) => $v === null));
-				$stale = array_keys(array_filter($versions, static fn ($v) => $v !== null && deb_version_compare($v, $max) < 0));
+				$isStale = static fn ($v) => $v !== null && deb_version_compare($v, $max) < 0;
+				$stale = array_keys(array_filter($versions, $isStale));
 				if ($missing) {
 					$cell['state'] = 'missing';
 					$cell['notes'][] = 'Not built for ' . implode(', ', $missing);
@@ -1662,7 +1926,8 @@ foreach ($otherProblems as $key => $names) {
 	$addIssue(
 		'other',
 		'error',
-		distro_label($codename, $config) . " · {$config['repos'][$repoKey]['label']}: " . count($names) . ' package' . (count($names) === 1 ? '' : 's') . " $kind $archs",
+		distro_label($codename, $config) . " · {$config['repos'][$repoKey]['label']}: "
+			. count($names) . ' package' . (count($names) === 1 ? '' : 's') . " $kind $archs",
 		['repo' => $repoKey, 'distro' => $codename, 'arch' => explode(', ', $archs), 'branch' => $branchTags],
 		$names,
 	);
@@ -1676,7 +1941,11 @@ foreach ($otherProblems as $key => $names) {
 			$repoKey,
 			$source,
 			"$kind $archs: " . $todoNames($list),
-			['distro' => $codename, 'arch' => explode(', ', $archs), 'branch' => array_values(array_unique(array_filter(array_map($branchOf, $list))))]
+			[
+				'distro' => $codename,
+				'arch'   => explode(', ', $archs),
+				'branch' => array_values(array_unique(array_filter(array_map($branchOf, $list)))),
+			]
 		);
 	}
 }
@@ -1687,8 +1956,12 @@ foreach ($otherBehind as $repoKey => $byCodename) {
 				'behind',
 				$repoKey,
 				$source,
-				count($names) . ' binar' . (count($names) === 1 ? 'y' : 'ies') . " older than on other distros, e.g. $names[0] ({$latestBase[$names[0]]} elsewhere)",
-				['distro' => $codename, 'branch' => array_values(array_unique(array_filter(array_map($branchOf, $names))))]
+				count($names) . ' binar' . (count($names) === 1 ? 'y' : 'ies')
+					. " older than on other distros, e.g. $names[0] ({$latestBase[$names[0]]} elsewhere)",
+				[
+					'distro' => $codename,
+					'branch' => array_values(array_unique(array_filter(array_map($branchOf, $names)))),
+				]
 			);
 		}
 	}
@@ -1711,16 +1984,27 @@ foreach ($watch as $key => $w) {
 foreach ($watchLag as $repoKey => $bySource) {
 	ksort($bySource, SORT_NATURAL);
 	foreach ($bySource as $source => $lag) {
-		$have = implode('; ', array_map(static fn ($v, $c) => "$v on " . implode(', ', $c), array_keys($lag['have']), $lag['have']));
+		$have = versions_on($lag['have']);
 		$addIssue(
 			'other',
 			'warn',
 			"{$config['repos'][$repoKey]['label']} · $source: upstream has {$lag['latest']}, packaged is $have",
-			['repo' => $repoKey, 'distro' => array_merge(...array_values($lag['have'])), 'branch' => array_filter([$branchOf($source)])],
+			[
+				'repo'   => $repoKey,
+				'distro' => array_merge(...array_values($lag['have'])),
+				'branch' => array_filter([$branchOf($source)]),
+			],
 			[],
 			['upstream' => $lag['url']]
 		);
-		$addTodo('new upstream', $repoKey, $source, "upstream has {$lag['latest']}, packaged is $have", ['distro' => array_merge(...array_values($lag['have']))], ['upstream' => $lag['url']]);
+		$addTodo(
+			'new upstream',
+			$repoKey,
+			$source,
+			"upstream has {$lag['latest']}, packaged is $have",
+			['distro' => array_merge(...array_values($lag['have']))],
+			['upstream' => $lag['url']]
+		);
 	}
 }
 foreach ($watchFailed as $repoKey => $bySource) {
@@ -1728,7 +2012,8 @@ foreach ($watchFailed as $repoKey => $bySource) {
 	$addIssue(
 		'other',
 		'warn',
-		"{$config['repos'][$repoKey]['label']}: " . count($bySource) . ' source' . (count($bySource) === 1 ? '' : 's') . ' not checked for upstream releases',
+		"{$config['repos'][$repoKey]['label']}: " . count($bySource) . ' source' . (count($bySource) === 1 ? '' : 's')
+			. ' not checked for upstream releases',
 		['repo' => $repoKey],
 		array_map(static fn ($s, $r) => "$s ($r)", array_keys($bySource), $bySource)
 	);
@@ -1771,7 +2056,10 @@ if ($output === '-') {
 if (file_put_contents($output, $html) === false) {
 	fail("Cannot write $output");
 }
-info("Wrote $output (" . count($issues['main']) . ' main issues, ' . count($issues['other']) . ' issue groups in other packages)');
+info(
+	"Wrote $output (" . count($issues['main']) . ' main issues, '
+		. count($issues['other']) . ' issue groups in other packages)'
+);
 
 if (!isset($opts['no-publish'])) {
 	foreach ($config['publish'] as $target) {
@@ -1811,6 +2099,10 @@ function build_view(array $config, array $report): array
 		'todos'            => $todos,
 	] = $report;
 
+	$supported = []; // "Debian 12 (bookworm), 13 (trixie)", ...
+	foreach ($supportedLabels as $family => $labels) {
+		$supported[] = $family . ' ' . implode(', ', $labels);
+	}
 	$issueCount = static fn (string $level): int
 		=> count(array_filter($issues['main'], static fn ($i) => $i['level'] === $level));
 
@@ -1820,7 +2112,7 @@ function build_view(array $config, array $report): array
 		'buildCount'    => array_filter(array_column($config['repos'], 'builds')) ? count($issues['build']) : null,
 		'repoLabels'    => array_column($config['repos'], 'label'),
 		'tracked'       => implode(' ', array_map(static fn ($p) => sprintf($p, 'X.Y'), $config['sapi_packages'])),
-		'supported'     => implode(' · ', array_map(static fn ($f, $l) => $f . ' ' . implode(', ', $l), array_keys($supportedLabels), $supportedLabels)),
+		'supported'     => implode(' · ', $supported),
 		'olderReleases' => $hasOlderReleases,
 		'freexianUrl'   => $config['freexian_url'],
 		'ppaLabel'      => $config['repos']['ppa']['label'] ?? null,
@@ -1848,13 +2140,20 @@ function build_view(array $config, array $report): array
 		];
 	}
 	foreach ($config['distros'] as $codename => $_) {
-		$view['distros'][$codename] = ['label' => distro_label($codename, $config), 'supported' => is_supported($codename, $config)];
+		$view['distros'][$codename] = [
+			'label'     => distro_label($codename, $config),
+			'supported' => is_supported($codename, $config),
+		];
 	}
 	foreach ($branches as $branch) {
 		$st = $upstream[$branch]['state'] ?? null;
 		$view['branches'][$branch] = [
-			'title' => isset($upstream[$branch]['security_end']) ? 'php.net security support until ' . substr($upstream[$branch]['security_end'], 0, 10) : null,
-			'state' => $st !== null && $st !== 'stable' ? ['class' => $st, 'label' => $st === 'eol' ? 'EOL' : $st] : null,
+			'title' => isset($upstream[$branch]['security_end'])
+				? 'php.net security support until ' . substr($upstream[$branch]['security_end'], 0, 10)
+				: null,
+			'state' => $st !== null && $st !== 'stable'
+				? ['class' => $st, 'label' => $st === 'eol' ? 'EOL' : $st]
+				: null,
 		];
 	}
 
@@ -1872,7 +2171,7 @@ function build_view(array $config, array $report): array
 	$filterArchs = array_keys($filterArchs);
 	sort($filterArchs);
 	$view['filters'] = [
-		'distro' => array_values(array_filter(array_keys($config['distros']), static fn ($c) => isset($filterDistros[$c]))),
+		'distro' => array_values(array_intersect(array_keys($config['distros']), array_keys($filterDistros))),
 		'arch'   => $filterArchs,
 		'branch' => $branches,
 	];
@@ -1896,7 +2195,8 @@ function build_view(array $config, array $report): array
 			$row = ['bad' => false, 'cells' => []]; // cells: codename => arch => cell
 			foreach ($cells[$repoKey] ?? [] as $codename => $byBranch) {
 				foreach ($byBranch[$branch] ?? [] as $cell) {
-					$row['bad'] = $row['bad'] || (is_supported($codename, $config) && STATE_RANK[$cell['state']] >= STATE_RANK['behind']);
+					$row['bad'] = $row['bad']
+						|| (is_supported($codename, $config) && STATE_RANK[$cell['state']] >= STATE_RANK['behind']);
 				}
 			}
 			foreach ($byCodename as $codename => $dist) {
@@ -1913,6 +2213,8 @@ function build_view(array $config, array $report): array
 	}
 
 	// Other packages: one group per PHP branch, then the rest.
+	$anyAtLeast = static fn (array $byCodename, string $state): bool
+		=> (bool) array_filter($byCodename, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK[$state]);
 	foreach ($others as $repoKey => $groups) {
 		$other = ['distros' => array_map(static fn ($d) => $d['published'], $dists[$repoKey]), 'groups' => []];
 		$order = array_values(array_filter($branches, static fn ($b) => isset($groups[$b])));
@@ -1923,9 +2225,9 @@ function build_view(array $config, array $report): array
 			$rows = [];
 			$bad = 0;
 			foreach ($groups[$group] as $name => $byCodename) {
-				$bad += array_filter($byCodename, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK['stale']) ? 1 : 0;
+				$bad += $anyAtLeast($byCodename, 'stale') ? 1 : 0;
 				$rows[$name] = [
-					'bad'   => (bool) array_filter($byCodename, static fn ($c) => STATE_RANK[$c['state']] >= STATE_RANK['behind']),
+					'bad'   => $anyAtLeast($byCodename, 'behind'),
 					'cells' => $byCodename,
 				];
 			}
@@ -1952,7 +2254,8 @@ function build_view(array $config, array $report): array
 		$merged[$key]['links'] += $t['links'];
 		foreach (['arch', 'branch'] as $dim) {
 			if (isset($t['tags'][$dim]) || isset($merged[$key]['tags'][$dim])) {
-				$merged[$key]['tags'][$dim] = array_values(array_unique(array_merge((array) ($merged[$key]['tags'][$dim] ?? []), (array) ($t['tags'][$dim] ?? []))));
+				$values = array_merge((array) ($merged[$key]['tags'][$dim] ?? []), (array) ($t['tags'][$dim] ?? []));
+				$merged[$key]['tags'][$dim] = array_values(array_unique($values));
 			}
 		}
 	}
@@ -1973,7 +2276,8 @@ function build_view(array $config, array $report): array
 	$sourceUrl = static function (string $repoKey, string $source) use ($config, $sources): ?string {
 		$repo = $config['repos'][$repoKey];
 		if (str_contains($repo['web'] ?? '', 'launchpad.net')) {
-			return $repo['web'] . '/+packages?' . http_build_query(['field.name_filter' => $source, 'field.status_filter' => 'published']);
+			return $repo['web'] . '/+packages?'
+				. http_build_query(['field.name_filter' => $source, 'field.status_filter' => 'published']);
 		}
 		foreach ($sources[$repoKey] ?? [] as $srcs) {
 			if (isset($srcs[$source]['vcs'])) {
@@ -2001,7 +2305,8 @@ function build_view(array $config, array $report): array
 	foreach ($changelogs as $key => $cl) {
 		[$repoKey, $codename, $branch] = explode('|', $key);
 		$view['changelogs'][$key] = [
-			'title'   => "PHP $branch · " . distro_label($codename, $config) . ' · ' . $config['repos'][$repoKey]['label'],
+			'title'   => "PHP $branch · " . distro_label($codename, $config)
+				. ' · ' . $config['repos'][$repoKey]['label'],
 			'version' => $cl['version'],
 			'text'    => $cl['text'],
 			'url'     => $cl['url'],
@@ -2033,7 +2338,12 @@ function render_cell(array $cell, string $attrs = '', string $extraClass = '', ?
 	if ($cell['notes']) {
 		$title .= "\n" . implode("\n", $cell['notes']);
 	}
-	$label = $v !== null ? base_version($v) : (isset($cell['building']) ? 'building' : ($cell['state'] === 'missing' ? 'missing' : '·'));
+	$label = match (true) {
+		$v !== null                  => base_version($v),
+		isset($cell['building'])     => 'building',
+		$cell['state'] === 'missing' => 'missing',
+		default                      => '·',
+	};
 	if (isset($cell['building'])) {
 		$extraClass .= match (true) {
 			$cell['building']['kind'] === 'proxy'          => ' building guess',
@@ -2059,7 +2369,8 @@ function render_issues(array $list): string
 			? '<span class="ctx">' . h($parts[0]) . '</span>' . h($parts[1])
 			: h($issue['text']);
 		if ($issue['items']) {
-			$out .= '<details><summary>' . $text . '</summary><p>' . h(implode(', ', $issue['items'])) . '</p></details>';
+			$out .= '<details><summary>' . $text . '</summary>'
+				. '<p>' . h(implode(', ', $issue['items'])) . '</p></details>';
 		} else {
 			$out .= $text;
 		}
@@ -2074,7 +2385,8 @@ function render_issues(array $list): string
 function deprecated_tag(?array $deprecated): string
 {
 	return $deprecated !== null
-		? ' <a class="deprecated" href="' . h($deprecated['url']) . '" title="' . h($deprecated['text']) . '">deprecated</a>'
+		? ' <a class="deprecated" href="' . h($deprecated['url']) . '"'
+			. ' title="' . h($deprecated['text']) . '">deprecated</a>'
 		: '';
 }
 
