@@ -5,6 +5,8 @@
 	<file>php-repo-matrix.php</file>
 	<file>php-repo-matrix.config.php.example</file>
 
+	<config name="php_version" value="80500"/>
+
 	<arg name="extensions" value="php,example/php"/>
 	<arg name="tab-width" value="4"/>
 	<arg name="colors"/>

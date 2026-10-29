@@ -9,24 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  syntax:
-    name: PHP ${{ matrix.php }} syntax
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # Lowest supported (composer.json) and current.
-        php: ['8.1', '8.5']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          coverage: none
-          tools: none
-      - run: php -l php-repo-matrix.php
-
-  phpcs:
-    name: PHPCS
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +19,7 @@ jobs:
           php-version: '8.5'
           coverage: none
           tools: cs2pr
+      - run: php -l php-repo-matrix.php
       - uses: ramsey/composer-install@v3
       # Checkstyle output becomes inline annotations on the pull request.
       - run: vendor/bin/phpcs -q --no-cache --report=checkstyle | cs2pr

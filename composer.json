@@ -1,7 +1,7 @@
 {
 	"description": "HTML matrix of PHP builds in ppa:ondrej/php and deb.sury.org/php",
 	"require": {
-		"php": ">=8.1",
+		"php": ">=8.5",
 		"ext-curl": "*",
 		"ext-zlib": "*"
 	},
