@@ -1242,12 +1242,19 @@ if ($config['upstream'] !== null) {
 			}
 		}
 	}
-	// Pre-releases (e.g. 8.6.0RC4) of branches without a GA release yet.
+	// Pre-releases (e.g. 8.6.0RC4) of branches without a GA release yet; a stable
+	// branch's next RC (8.4.28RC1 after 8.4.27) is not its latest release.
 	foreach (json_decode((string) ($upstreamData[$config['upstream']['prerelease'] ?? ''] ?? ''), true) ?: [] as $r) {
 		$version = $r['release']['version'] ?? null;
 		if (
 			($r['release']['enabled'] ?? true) && $version !== null && preg_match('/^(\d+\.\d+)\./', $version, $m)
-			&& (!isset($upstream[$m[1]]['latest']) || version_compare($version, $upstream[$m[1]]['latest'], '>'))
+			&& (
+				!isset($upstream[$m[1]]['latest'])
+				|| (
+					preg_match('/(alpha|beta|RC)\d+$/i', $upstream[$m[1]]['latest'])
+					&& version_compare($version, $upstream[$m[1]]['latest'], '>')
+				)
+			)
 		) {
 			$upstream[$m[1]]['latest'] = $version;
 			$upstream[$m[1]]['date'] = isset($r['release']['date'])
