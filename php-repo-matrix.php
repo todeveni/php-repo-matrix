@@ -4,7 +4,7 @@
  * PHP build matrix
  *
  * Builds an HTML matrix of PHP versions (and their package versions) per
- * distro and architecture for ppa:ondrej/php and deb.sury.org/php, so
+ * distro and architecture for deb.sury.org/php, so
  * missing or lagging builds stand out (e.g. PHP 7.4 for armhf on 24.04).
  *
  * The main matrix tracks the core/SAPI packages of each PHP branch
@@ -13,10 +13,8 @@
  * latest changelog entries of that source package.
  *
  * Builds in progress are marked in the matrix, so an in-flight upload isn't
- * mistaken for a broken one: queued/running Launchpad builds for the PPA, and
- * for deb.sury.org (whose Jenkins isn't public) packaging branches with a
- * commit newer than the published build, or a newer version building on the
- * PPA.
+ * mistaken for a broken one: as deb.sury.org's Jenkins isn't public, these are
+ * packaging branches with a commit newer than the published build.
  *
  * Package versions are also compared with the latest releases on php.net,
  * so a branch that hasn't picked up a new upstream release is flagged.
@@ -33,7 +31,7 @@
  * Caching: Release files are cached and revalidated with If-Modified-Since
  * (after cache_ttl). Packages/Sources indexes are cached by the SHA256 listed
  * in Release, so they are only downloaded again when they actually change.
- * Changelogs and Launchpad lookups are keyed by package version and never
+ * Changelogs are keyed by package version and never
  * refetched. Pages named in debian/watch are reused for watch_ttl, then
  * revalidated the same way. --no-cache forces revalidation of Release files
  * and watched pages even within their TTL; content-addressed entries are
@@ -74,14 +72,11 @@ $config = [
 		'resolute' => ['Ubuntu', '26.04'],
 	],
 
-	// APT repositories to inspect, in display order. 'changelog' is either
-	// ['type' => 'launchpad', 'archive' => '~owner/+archive/ubuntu/name'] or
-	// ['type' => 'pool'] (debian/changelog read from the .debian.tar.xz).
-	// 'builds' (optional) is where build status comes from:
-	// ['type' => 'launchpad', 'archive' => ...] for queued/running builds, or
-	// ['type' => 'vcs'] to compare the gbp commit in the version with the
-	// GitLab branch named in Vcs-Browser. 'proxy' => repoKey additionally
-	// takes a newer version building in that repo as "probably building" here.
+	// APT repositories to inspect, in display order. 'changelog' (optional)
+	// is ['type' => 'pool']: debian/changelog read from the .debian.tar.xz.
+	// 'builds' (optional) is where build status comes from: ['type' => 'vcs']
+	// compares the gbp commit in the version with the GitLab branch named in
+	// Vcs-Browser.
 	'repos' => [
 		'sury' => [
 			'label'     => 'deb.sury.org/php',
@@ -89,24 +84,7 @@ $config = [
 			'families'  => ['Debian', 'Ubuntu'],
 			'component' => 'main',
 			'changelog' => ['type' => 'pool'],
-			'builds'    => ['type' => 'vcs', 'proxy' => 'ppa'],
-		],
-		'ppa' => [
-			'label'     => 'ppa:ondrej/php',
-			'url'       => 'https://ppa.launchpadcontent.net/ondrej/php/ubuntu',
-			'web'       => 'https://launchpad.net/~ondrej/+archive/ubuntu/php', // linked instead of 'url'
-			'families'  => ['Ubuntu'],
-			'component' => 'main',
-			'changelog' => ['type' => 'launchpad', 'archive' => '~ondrej/+archive/ubuntu/php'],
-			'builds'    => ['type' => 'launchpad', 'archive' => '~ondrej/+archive/ubuntu/php'],
-			// Newer releases are only served from deb.sury.org; not publishing
-			// them here is expected: they are not listed for this repo at all.
-			'last_release' => '24.04',
-			// Shown next to the repo wherever it is listed.
-			'deprecated' => [
-				'text' => 'Moving Ubuntu from PPA to packages.sury.org',
-				'url'  => 'https://codeberg.org/oerdnj/deb.sury.org/issues/73',
-			],
+			'builds'    => ['type' => 'vcs'],
 		],
 	],
 
@@ -812,9 +790,6 @@ function distro_label(string $codename, array $config): string
 	return "$family $version ($codename)";
 }
 
-/** Launchpad build states that mean "not done yet". */
-const BUILD_ACTIVE = ['Needs building', 'Currently building', 'Gathering build output', 'Uploading build'];
-
 // ---------------------------------------------------------------------------
 // Which distros to scan
 
@@ -873,11 +848,7 @@ foreach ($scan as $repoKey => $codenames) {
 	foreach ($codenames as $codename) {
 		$body = $releases[$distUrl($repoKey, $codename) . '/Release'] ?? null;
 		if ($body === null) {
-			// Releases past the repo's last_release are expected to be missing; leave them out entirely.
-			$lastRelease = $config['repos'][$repoKey]['last_release'] ?? null;
-			if ($lastRelease === null || version_compare($config['distros'][$codename][1], $lastRelease, '<=')) {
-				$dists[$repoKey][$codename] = ['published' => false, 'date' => null, 'archs' => [], 'failed' => []];
-			}
+			$dists[$repoKey][$codename] = ['published' => false, 'date' => null, 'archs' => [], 'failed' => []];
 			continue;
 		}
 		$fields = parse_release($body);
@@ -986,7 +957,6 @@ $branchOf = static function (string $name) use ($sourceOf): ?string {
 
 $changelogs = []; // "repo|codename|branch" => ['version', 'text', 'url']
 if ($config['changelog_entries'] > 0) {
-	$lpQueries = [];
 	$tarballs = [];
 	foreach ($sources as $repoKey => $byCodename) {
 		$cl = $config['repos'][$repoKey]['changelog'] ?? null;
@@ -998,15 +968,7 @@ if ($config['changelog_entries'] > 0) {
 				}
 				$key = "$repoKey|$codename|$branch";
 				$changelogs[$key] = ['version' => $src['version'], 'text' => null, 'url' => null];
-				if ($cl['type'] === 'launchpad') {
-					$lpQueries[$key] = 'https://api.launchpad.net/devel/' . $cl['archive'] . '?' . http_build_query([
-						'ws.op'          => 'getPublishedSources',
-						'source_name'    => "php$branch",
-						'exact_match'    => 'true',
-						'status'         => 'Published',
-						'distro_series'  => "https://api.launchpad.net/devel/ubuntu/$codename",
-					]);
-				} elseif ($cl['type'] === 'pool') {
+				if ($cl['type'] === 'pool') {
 					foreach ($src['files'] as $file) {
 						if (str_ends_with($file, '.debian.tar.xz')) {
 							$tarballs[$key] = rtrim($config['repos'][$repoKey]['url'], '/') . '/' . $src['directory']
@@ -1022,33 +984,7 @@ if ($config['changelog_entries'] > 0) {
 		}
 	}
 
-	info('Fetching ' . (count($lpQueries) + count($tarballs)) . ' changelog sources...');
-	// The publication of a given source version doesn't change.
-	$lpResults = fetch_all(
-		$lpQueries,
-		$config,
-		array_map(static fn ($key) => $changelogs[$key]['version'], array_flip($lpQueries)),
-		[],
-		'php-build-matrix/1.0'
-	);
-	$lpChangelogUrls = [];
-	foreach ($lpQueries as $key => $url) {
-		$json = json_decode((string) ($lpResults[$url] ?? ''), true);
-		foreach ($json['entries'] ?? [] as $entry) {
-			if ($entry['source_package_version'] === $changelogs[$key]['version']) {
-				$web = str_replace('https://api.launchpad.net/devel/', 'https://launchpad.net/', $entry['self_link']);
-				$lpChangelogUrls[$key] = $web . '/+files/changelog';
-				$changelogs[$key]['url'] = $lpChangelogUrls[$key];
-			}
-		}
-	}
-
-	$lpTexts = fetch_all($lpChangelogUrls, $config, array_fill_keys($lpChangelogUrls, 'v'), [], 'php-build-matrix/1.0');
-	foreach ($lpChangelogUrls as $key => $url) {
-		if (isset($lpTexts[$url])) {
-			$changelogs[$key]['text'] = changelog_head($lpTexts[$url], $config['changelog_entries']);
-		}
-	}
+	info('Fetching ' . count($tarballs) . ' changelog sources...');
 	$tarTexts = fetch_all($tarballs, $config, array_fill_keys($tarballs, 'v'));
 	foreach ($tarballs as $key => $url) {
 		$text = isset($tarTexts[$url])
@@ -1063,56 +999,8 @@ if ($config['changelog_entries'] > 0) {
 // ---------------------------------------------------------------------------
 // Builds in progress
 
-// repo => codename => source => arch => ['kind', 'version', 'state', 'since', 'url', 'note']
-// kind: launchpad (queued/running there), vcs (branch has an unbuilt commit),
-// proxy (another repo is building a newer version).
+// repo => codename => source => arch => ['version', 'state', 'since', 'url', 'note']
 $building = [];
-$buildPages = []; // url => repoKey
-foreach ($config['repos'] as $repoKey => $repo) {
-	if (($repo['builds']['type'] ?? null) === 'launchpad' && isset($scan[$repoKey])) {
-		foreach (BUILD_ACTIVE as $state) {
-			$buildPages['https://api.launchpad.net/devel/' . $repo['builds']['archive'] . '?' . http_build_query([
-				'ws.op'       => 'getBuildRecords',
-				'build_state' => $state,
-				'ws.size'     => 300,
-			])] = $repoKey;
-		}
-	}
-}
-if ($buildPages) {
-	info('Fetching builds in progress...');
-}
-while ($buildPages) {
-	$results = fetch_all(array_keys($buildPages), $config, [], [], 'php-build-matrix/1.0');
-	$next = [];
-	foreach ($buildPages as $url => $repoKey) {
-		$json = json_decode((string) ($results[$url] ?? ''), true);
-		foreach ($json['entries'] ?? [] as $b) {
-			$codename = basename((string) $b['distro_series_link']);
-			$source = $b['source_package_name'];
-			$prev = $building[$repoKey][$codename][$source][$b['arch_tag']] ?? null;
-			if (
-				isset($dists[$repoKey][$codename])
-				&& ($prev === null || deb_version_compare($b['source_package_version'], $prev['version']) > 0)
-			) {
-				$since = $b['date_started'] ?? $b['datecreated'] ?? null;
-				$building[$repoKey][$codename][$source][$b['arch_tag']] = [
-					'kind'    => 'launchpad',
-					'version' => $b['source_package_version'],
-					'state'   => $b['buildstate'],
-					'since'   => $since,
-					'url'     => $b['web_link'],
-					'note'    => "Building {$b['source_package_version']} ({$b['buildstate']}"
-						. ($since ? ' since ' . gmdate('Y-m-d H:i', strtotime($since)) . ' UTC' : '') . ')',
-				];
-			}
-		}
-		if (isset($json['next_collection_link'])) {
-			$next[$json['next_collection_link']] = $repoKey;
-		}
-	}
-	$buildPages = $next;
-}
 
 $buildArchs = static fn (string $repoKey, string $codename): array
 	=> array_values(array_diff($dists[$repoKey][$codename]['archs'], $dists[$repoKey][$codename]['unbuilt'] ?? []));
@@ -1137,7 +1025,6 @@ foreach ($config['repos'] as $repoKey => $repo) {
 		}
 	}
 }
-$vcsChecked = []; // "repo|codename|source" => true
 $unbuiltCommits = []; // [repoKey, codename, source, branch, commit, date]
 if ($branchApi) {
 	info('Fetching ' . count($branchApi) . ' packaging branch heads...');
@@ -1148,7 +1035,6 @@ if ($branchApi) {
 			continue;
 		}
 		foreach ($uses as [$repoKey, $codename, $source, $built, $branch, $web]) {
-			$vcsChecked["$repoKey|$codename|$source"] = true;
 			if (str_starts_with($commit['id'], $built)) {
 				continue;
 			}
@@ -1157,56 +1043,12 @@ if ($branchApi) {
 			$unbuiltCommits[] = [$repoKey, $codename, $source, $branch, $short, $commit['committed_date']];
 			foreach ($buildArchs($repoKey, $codename) as $arch) {
 				$building[$repoKey][$codename][$source][$arch] = [
-					'kind'    => 'vcs',
 					'version' => "$branch @ $short",
 					'state'   => 'Not built yet',
 					'since'   => $commit['committed_date'],
 					'url'     => $commit['web_url'] ?? $web,
 					'note'    => "Not built yet: $branch is at $short ($date UTC, " . ($commit['title'] ?? '')
 						. "), published build is from $built",
-				];
-			}
-		}
-	}
-}
-
-// A repo without build status of its own: when another repo is building a
-// newer version of a source, a build here is probably underway too.
-foreach ($config['repos'] as $repoKey => $repo) {
-	$proxy = $repo['builds']['proxy'] ?? null;
-	$newest = []; // source => newest build of it in the proxy repo
-	foreach ($building[$proxy] ?? [] as $bySource) {
-		foreach ($bySource as $source => $byArch) {
-			foreach ($byArch as $b) {
-				if ($b['kind'] !== 'launchpad') {
-					continue;
-				}
-				$newestVersion = isset($newest[$source]) ? base_version($newest[$source]['version']) : null;
-				if ($newestVersion === null || deb_version_compare(base_version($b['version']), $newestVersion) > 0) {
-					$newest[$source] = $b;
-				}
-			}
-		}
-	}
-	foreach ($newest as $source => $b) {
-		$newer = base_version($b['version']);
-		foreach ($sources[$repoKey] ?? [] as $codename => $srcs) {
-			if (
-				!isset($srcs[$source])
-				|| isset($vcsChecked["$repoKey|$codename|$source"])
-				|| isset($building[$repoKey][$codename][$source])
-				|| deb_version_compare(base_version($srcs[$source]['version']), $newer) >= 0
-			) {
-				continue;
-			}
-			foreach ($buildArchs($repoKey, $codename) as $arch) {
-				$building[$repoKey][$codename][$source][$arch] = [
-					'kind'    => 'proxy',
-					'version' => $newer,
-					'state'   => 'Probably building',
-					'since'   => $b['since'],
-					'url'     => $b['url'],
-					'note'    => "Probably building: {$config['repos'][$proxy]['label']} is building $newer",
 				];
 			}
 		}
@@ -2127,13 +1969,12 @@ function build_view(array $config, array $report): array
 		'freexianUrl'   => $config['freexian_url'],
 		'sourceUrl'     => $config['source_url'],
 		'sourceLabel'   => preg_replace('#^https?://#', '', $config['source_url']),
-		'ppaLabel'      => $config['repos']['ppa']['label'] ?? null,
 		'issues'        => $issues,
 		'issueCounts'   => ['error' => $issueCount('error'), 'warn' => $issueCount('warn')],
 		'hasUpstream'   => (bool) $upstream,
 		'hasChangelogs' => (bool) $changelogs,
 		'hasWatch'      => (bool) $watch,
-		'repos'         => [], // repoKey => ['label', 'url', 'deprecated']
+		'repos'         => [], // repoKey => ['label', 'url']
 		'distros'       => [], // codename => ['label', 'supported']
 		'branches'      => [], // branch => ['title', 'state' => ['class', 'label'] for non-stable branches]
 		'filters'       => [],
@@ -2146,9 +1987,8 @@ function build_view(array $config, array $report): array
 
 	foreach ($config['repos'] as $repoKey => $repo) {
 		$view['repos'][$repoKey] = [
-			'label'      => $repo['label'],
-			'url'        => $repo['web'] ?? $repo['url'],
-			'deprecated' => $repo['deprecated'] ?? null,
+			'label' => $repo['label'],
+			'url'   => $repo['url'],
 		];
 	}
 	foreach ($config['distros'] as $codename => $_) {
@@ -2285,12 +2125,7 @@ function build_view(array $config, array $report): array
 			$view['todoTypes'][$type] = ['description' => $desc, 'count' => $todoTypes[$type]];
 		}
 	}
-	$sourceUrl = static function (string $repoKey, string $source) use ($config, $sources): ?string {
-		$repo = $config['repos'][$repoKey];
-		if (str_contains($repo['web'] ?? '', 'launchpad.net')) {
-			return $repo['web'] . '/+packages?'
-				. http_build_query(['field.name_filter' => $source, 'field.status_filter' => 'published']);
-		}
+	$sourceUrl = static function (string $repoKey, string $source) use ($sources): ?string {
 		foreach ($sources[$repoKey] ?? [] as $srcs) {
 			if (isset($srcs[$source]['vcs'])) {
 				return $srcs[$source]['vcs'];
@@ -2357,11 +2192,7 @@ function render_cell(array $cell, string $attrs = '', string $extraClass = '', ?
 		default                      => '·',
 	};
 	if (isset($cell['building'])) {
-		$extraClass .= match (true) {
-			$cell['building']['kind'] === 'proxy'          => ' building guess',
-			in_array($cell['building']['state'], ['Needs building', 'Not built yet'], true) => ' building queued',
-			default                                        => ' building',
-		};
+		$extraClass .= $cell['building']['state'] === 'Not built yet' ? ' building queued' : ' building';
 	}
 	$attrs .= ' class="s-' . $cell['state'] . $extraClass . '" title="' . h($title) . '"';
 	if ($clKey !== null) {
@@ -2392,14 +2223,6 @@ function render_issues(array $list): string
 		$out .= '</li>';
 	}
 	return $out . '</ul>';
-}
-
-function deprecated_tag(?array $deprecated): string
-{
-	return $deprecated !== null
-		? ' <a class="deprecated" href="' . h($deprecated['url']) . '"'
-			. ' title="' . h($deprecated['text']) . '">deprecated</a>'
-		: '';
 }
 
 // The templates below are HTML with inline PHP; the PHP layout rules don't
@@ -2434,9 +2257,6 @@ function render_page(array $view): string
 
 <div class="support">
 	<div><b>Supported</b><?= h($view['supported']) ?></div>
-	<?php foreach ($view['repos'] as $repoKey => $repo): if ($repo['deprecated'] !== null): ?>
-	<div class="unsup" data-repo="<?= h($repoKey) ?>"><b>Deprecated</b><?= h($repo['label']) ?> · <a href="<?= h($repo['deprecated']['url']) ?>"><?= h($repo['deprecated']['text']) ?></a></div>
-	<?php endif; endforeach; ?>
 	<?php if ($view['olderReleases']): ?>
 	<div class="unsup"><b>Older releases</b>Commercial support by <a href="<?= h($view['freexianUrl']) ?>">Freexian PHP LTS</a></div>
 	<?php endif; ?>
@@ -2460,16 +2280,13 @@ function render_page(array $view): string
 	</div>
 	<div class="fgroup">
 		<button type="button" class="chip toggle" id="only-bad" aria-pressed="false">problems only</button>
-		<?php if ($view['ppaLabel'] !== null): ?>
-		<button type="button" class="chip toggle" id="hide-ppa" aria-pressed="false" title="Hide <?= h($view['ppaLabel']) ?> everywhere: matrices, issues and todos">hide PPA</button>
-		<?php endif; ?>
-		<button type="button" class="chip" id="reset" title="Show everything: all repositories, distros, architectures and PHP branches">reset</button>
+		<button type="button" class="chip" id="reset" title="Show everything: all distros, architectures and PHP branches">reset</button>
 	</div>
 	<span class="hint">click to toggle · shift-click for only this one · click a group name for all/none</span>
 </nav>
 
 <?php if ($view['issues']['build']): ?>
-<h2 id="building">Building now <span class="count">queued or running on Launchpad, unbuilt packaging commits, or (dashed) probably building because the PPA is; affected cells are outlined</span></h2>
+<h2 id="building">Building now <span class="count">unbuilt packaging commits; affected cells are outlined</span></h2>
 <?= render_issues($view['issues']['build']) ?>
 <?php endif; ?>
 
@@ -2528,7 +2345,7 @@ function render_matrices(array $view): void
 	?>
 <?php foreach ($view['matrices'] as $repoKey => $matrix): $repo = $view['repos'][$repoKey]; ?>
 <section class="repo" data-repo="<?= h($repoKey) ?>" data-distro="<?= h(implode(' ', array_keys($matrix['distros']))) ?>">
-<h2><?= h($repo['label']) ?> <a href="<?= h($repo['url']) ?>"><?= h($repo['url']) ?></a><?= deprecated_tag($repo['deprecated']) ?></h2>
+<h2><?= h($repo['label']) ?> <a href="<?= h($repo['url']) ?>"><?= h($repo['url']) ?></a></h2>
 <div class="scroll">
 <table class="matrix">
 	<thead>
@@ -2589,7 +2406,7 @@ function render_others(array $view): void
 
 <?php foreach ($view['others'] as $repoKey => $other): $repo = $view['repos'][$repoKey]; ?>
 <section class="repo" data-repo="<?= h($repoKey) ?>" data-distro="<?= h(implode(' ', array_keys($other['distros']))) ?>">
-<h3><?= h($repo['label']) ?><?= deprecated_tag($repo['deprecated']) ?></h3>
+<h3><?= h($repo['label']) ?></h3>
 <?php foreach ($other['groups'] as $group): ?>
 <details class="pkgs"<?= $group['branch'] === null ? '' : ' data-branch="' . h($group['branch']) . '"' ?>>
 	<summary><?= h($group['label']) ?><span><?= count($group['rows']) ?> packages</span><?php if ($group['bad']): ?><span class="bad"><?= $group['bad'] ?> with problems</span><?php endif; ?></summary>
@@ -2704,8 +2521,6 @@ footer { font: 12px var(--mono); color: var(--muted); }
 .support { margin: 14px 0 0; padding: 0 0 14px; border-bottom: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 4px 28px; }
 .support b { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; margin-right: 6px; }
 .support .unsup { color: var(--bad-fg); }
-.deprecated { margin-left: 10px; padding: 1px 6px; font: 600 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; background: var(--bad-bg); color: var(--bad-fg); text-decoration: none; vertical-align: middle; }
-h2 a.deprecated { font: 600 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
 
 /* Filter bar */
 .filters { position: sticky; top: 0; z-index: 5; background: var(--paper); border-bottom: 1px solid var(--rule);
@@ -2765,7 +2580,6 @@ td i { font-style: normal; font-size: 10px; vertical-align: super; margin-left: 
 td.building { box-shadow: inset 0 0 0 2px var(--mark); background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--mark) 18%, transparent) 6px 10px);
 	background-size: 28.28px 28.28px; animation: crawl 1.5s linear infinite; }
 td.building.queued { box-shadow: inset 0 0 0 1px var(--mark); animation: none; }
-td.building.guess { box-shadow: none; outline: 1px dashed var(--mark); outline-offset: -2px; background-image: none; animation: none; }
 @keyframes crawl { to { background-position: 28.28px 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { td.building, .issues .i-build::before { animation: none; } }
@@ -2843,7 +2657,6 @@ document.addEventListener('keydown', e => {
 const DIMS = ['distro', 'arch', 'branch'];
 const off = { distro: new Set(), arch: new Set(), branch: new Set() };
 const onlyBad = document.getElementById('only-bad');
-const hidePpa = document.getElementById('hide-ppa');
 const pkgFilter = document.getElementById('pkg-filter');
 
 function allowed(el, dim) {
@@ -2851,17 +2664,14 @@ function allowed(el, dim) {
 	if (v === undefined || v === '') return true;
 	return v.split(' ').some(x => !off[dim].has(x));
 }
-// Unlike the other dimensions, anything involving a hidden repository is hidden.
-const repoShown = el => !el.dataset.repo || !(hidePpa?.getAttribute('aria-pressed') === 'true' && el.dataset.repo.split(' ').includes('ppa'));
-const visible = el => repoShown(el) && DIMS.every(d => allowed(el, d));
+const visible = el => DIMS.every(d => allowed(el, d));
 
 function apply() {
 	document.querySelectorAll('.fgroup[data-dim] .chip').forEach(c =>
 		c.setAttribute('aria-pressed', String(!off[c.closest('.fgroup').dataset.dim].has(c.dataset.value))));
 
 	// Repositories with none of the selected distros
-	document.querySelectorAll('section.repo').forEach(s => s.hidden = !allowed(s, 'distro') || !repoShown(s));
-	document.querySelectorAll('.support [data-repo]').forEach(el => el.hidden = !repoShown(el));
+	document.querySelectorAll('section.repo').forEach(s => s.hidden = !allowed(s, 'distro'));
 
 	// Main matrices: hide columns, fix distro header spans, hide rows
 	document.querySelectorAll('table.matrix').forEach(t => {
@@ -2904,7 +2714,6 @@ function apply() {
 
 	const parts = DIMS.filter(d => off[d].size).map(d => d + '=' + [...off[d]].join(','));
 	if (bad) parts.push('bad');
-	if (hidePpa?.getAttribute('aria-pressed') === 'true') parts.push('noppa');
 	history.replaceState(null, '', parts.length ? '#' + parts.join('&') : location.pathname + location.search);
 }
 
@@ -2986,16 +2795,11 @@ onlyBad.addEventListener('click', () => {
 	onlyBad.setAttribute('aria-pressed', String(onlyBad.getAttribute('aria-pressed') !== 'true'));
 	apply();
 });
-hidePpa?.addEventListener('click', () => {
-	hidePpa.setAttribute('aria-pressed', String(hidePpa.getAttribute('aria-pressed') !== 'true'));
-	apply();
-});
 pkgFilter.addEventListener('input', apply);
 document.getElementById('reset').addEventListener('click', () => {
 	DIMS.forEach(d => off[d].clear());
 	todoTypesOff.clear();
 	onlyBad.setAttribute('aria-pressed', 'false');
-	hidePpa?.setAttribute('aria-pressed', 'false');
 	pkgFilter.value = '';
 	apply();
 });
@@ -3010,7 +2814,6 @@ for (const part of location.hash.slice(1).split('&')) {
 	const [k, v] = part.split('=');
 	if (DIMS.includes(k) && v) off[k] = new Set(decodeURIComponent(v).split(','));
 	if (k === 'bad') onlyBad.setAttribute('aria-pressed', 'true');
-	if (k === 'noppa') hidePpa?.setAttribute('aria-pressed', 'true');
 }
 apply();
 <?php

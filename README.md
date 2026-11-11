@@ -3,8 +3,7 @@
 **Live report: <https://todeveni.github.io/php-repo-matrix/>** (updated every 15 minutes)
 
 A single, self-contained PHP script that builds an HTML overview of what is
-published in [deb.sury.org/php](https://packages.sury.org/php) and
-[ppa:ondrej/php](https://launchpad.net/~ondrej/+archive/ubuntu/php). It shows a
+published in [deb.sury.org/php](https://packages.sury.org/php). It shows a
 matrix of PHP branch × distro release × architecture, so missing or lagging
 builds stand out right away (for example, PHP 7.4 missing for armhf on 24.04).
 
@@ -18,11 +17,9 @@ Background and discussion:
   Clicking a cell shows the latest changelog entries of that source package.
 - **All other packages** (extensions, libraries), one cell per distro.
 - **Builds in progress**, so an upload that is still building isn't mistaken
-  for a broken one:
-  - PPA: queued or running builds, from the Launchpad API.
-  - deb.sury.org: packaging branches whose latest commit is newer than the
-    published build, or a newer version already building on the PPA. A commit
-    still unbuilt after a few hours is flagged as a possibly failed build.
+  for a broken one: packaging branches whose latest commit is newer than the
+  published build. A commit still unbuilt after a few hours is flagged as a
+  possibly failed build.
 - **Upstream freshness**: PHP versions are compared with the latest releases
   on php.net; other source packages are checked against their `debian/watch`
   file, the way uscan does.
