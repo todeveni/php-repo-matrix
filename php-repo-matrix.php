@@ -451,6 +451,24 @@ function changelog_head(string $text, int $entries): string
 	return rtrim(implode("\n", $out));
 }
 
+/**
+ * Version and date of the newest released (not UNRELEASED) debian/changelog entry.
+ *
+ * @return array{string, string}|null
+ */
+function changelog_release(string $text): ?array
+{
+	$version = null;
+	foreach (explode("\n", $text) as $line) {
+		if (preg_match('/^[a-z0-9][a-z0-9+.-]* \(([^)]+)\) ([^;]+);/i', $line, $m)) {
+			$version = trim($m[2]) === 'UNRELEASED' ? null : $m[1];
+		} elseif ($version !== null && preg_match('/^ -- .*>  (.+)$/', $line, $m)) {
+			return [$version, trim($m[1])];
+		}
+	}
+	return null;
+}
+
 /** Extracts one file (debian/changelog, debian/watch) from a .debian.tar.xz blob. */
 function file_from_debian_tar(string $tarball, string $path, string $cacheDir): ?string
 {
@@ -736,6 +754,7 @@ function deb_version_compare(string $a, string $b): int
  * Drops the epoch and everything from the first distro/build marker on:
  *   1:7.4.33-31+ubuntu24.04.1+deb.sury.org+1           -> 7.4.33-31
  *   1:7.4.33-31+0~20261021.121+debian13~1.gbpe9c428    -> 7.4.33-31
+ *   8.6.0~rc5-2+0~deb.sury.org.1+debian13              -> 8.6.0~rc5-2
  *   5.22+0~20260903.42+debian11~1.gbpf43e56 (native)  -> 5.22
  *   2.3.3-13+deb12u1, 1.0-1~bpo12+1                    -> 2.3.3-13, 1.0-1
  */
@@ -743,7 +762,7 @@ function base_version(string $version): string
 {
 	$version = preg_replace('/^\d+:/', '', $version);
 	return preg_replace(
-		'/(?:\+(?:0~\d|debian\d|ubuntu\d|deb\d|deb\.sury\.org)|~(?:bpo|deb|ubuntu)\d).*$/',
+		'/(?:\+(?:0~(?:\d|deb\.sury\.org)|debian\d|ubuntu\d|deb\d|deb\.sury\.org)|~(?:bpo|deb|ubuntu)\d).*$/',
 		'',
 		$version
 	);
@@ -1007,28 +1026,38 @@ $buildArchs = static fn (string $repoKey, string $codename): array
 
 // Jenkins (git-buildpackage) versions end in the commit they were built from,
 // e.g. ...+debian12~1.gbp7636b9. When the GitLab branch named in Vcs-Browser
-// has moved past it, a build is pending (or failed).
+// has moved past it, a build is pending (or failed). Releases (phpX.Y) carry
+// no commit, so the newest released entry of debian/changelog on the branch
+// is compared with the published version instead.
 $branchApi = []; // api url => [[repoKey, codename, source, built commit, branch, web url], ...]
+$changelogApi = []; // raw file url => [[repoKey, codename, source, built version, branch, web url], ...]
 foreach ($config['repos'] as $repoKey => $repo) {
 	if (($repo['builds']['type'] ?? null) !== 'vcs') {
 		continue;
 	}
 	foreach ($sources[$repoKey] ?? [] as $codename => $srcs) {
 		foreach ($srcs as $source => $src) {
-			if (
-				preg_match('#^(https://[^/]+)/(.+?)/-/tree/(.+)$#', (string) $src['vcs'], $m)
-				&& preg_match('/\.gbp([0-9a-f]+)$/', $src['version'], $g)
-			) {
-				$api = "$m[1]/api/v4/projects/" . rawurlencode($m[2]) . '/repository/branches/' . rawurlencode($m[3]);
-				$branchApi[$api][] = [$repoKey, $codename, $source, $g[1], $m[3], $src['vcs']];
+			if (!preg_match('#^(https://[^/]+)/(.+?)/-/tree/(.+)$#', (string) $src['vcs'], $m)) {
+				continue;
+			}
+			$api = "$m[1]/api/v4/projects/" . rawurlencode($m[2]) . '/repository/';
+			if (preg_match('/\.gbp([0-9a-f]+)$/', $src['version'], $g)) {
+				$branchApi[$api . 'branches/' . rawurlencode($m[3])][] = [
+					$repoKey, $codename, $source, $g[1], $m[3], $src['vcs'],
+				];
+			} else {
+				$changelogApi[$api . 'files/debian%2Fchangelog/raw?ref=' . rawurlencode($m[3])][] = [
+					$repoKey, $codename, $source, base_version($src['version']), $m[3], $src['vcs'],
+				];
 			}
 		}
 	}
 }
-$unbuiltCommits = []; // [repoKey, codename, source, branch, commit, date]
-if ($branchApi) {
-	info('Fetching ' . count($branchApi) . ' packaging branch heads...');
-	$heads = fetch_all(array_keys($branchApi), $config, [], [], 'php-build-matrix/1.0');
+$unbuiltCommits = []; // [repoKey, codename, source, branch, commit or version, date]
+if ($branchApi || $changelogApi) {
+	info('Fetching ' . count($branchApi) . ' packaging branch heads and ' . count($changelogApi) . ' changelogs...');
+	$urls = array_merge(array_keys($branchApi), array_keys($changelogApi));
+	$heads = fetch_all($urls, $config, [], [], 'php-build-matrix/1.0');
 	foreach ($branchApi as $api => $uses) {
 		$commit = json_decode((string) ($heads[$api] ?? ''), true)['commit'] ?? null;
 		if (!isset($commit['id'], $commit['committed_date'])) {
@@ -1049,6 +1078,30 @@ if ($branchApi) {
 					'url'     => $commit['web_url'] ?? $web,
 					'note'    => "Not built yet: $branch is at $short ($date UTC, " . ($commit['title'] ?? '')
 						. "), published build is from $built",
+				];
+			}
+		}
+	}
+	foreach ($changelogApi as $api => $uses) {
+		$release = changelog_release((string) ($heads[$api] ?? ''));
+		$time = $release === null ? false : strtotime($release[1]);
+		if ($time === false) {
+			continue;
+		}
+		[$version, $since] = [$release[0], gmdate('c', $time)];
+		foreach ($uses as [$repoKey, $codename, $source, $built, $branch, $web]) {
+			if (deb_version_compare($version, $built) <= 0) {
+				continue;
+			}
+			$unbuiltCommits[] = [$repoKey, $codename, $source, $branch, $version, $since];
+			foreach ($buildArchs($repoKey, $codename) as $arch) {
+				$building[$repoKey][$codename][$source][$arch] = [
+					'version' => "$branch @ $version",
+					'state'   => 'Not built yet',
+					'since'   => $since,
+					'url'     => $web,
+					'note'    => "Not built yet: $branch has $version (" . gmdate('Y-m-d H:i', $time)
+						. " UTC), published build is $built",
 				];
 			}
 		}
