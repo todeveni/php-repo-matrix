@@ -18,7 +18,9 @@ Background and discussion:
 - **All other packages** (extensions, libraries), one cell per distro.
 - **Builds in progress**, so an upload that is still building isn't mistaken
   for a broken one: packaging branches whose latest commit is newer than the
-  published build. A commit still unbuilt after a few hours is flagged as a
+  published build, and published PHP sources whose SAPI packages (`-cli`,
+  `-fpm`, `-cgi`, the Apache module, embed, litespeed) are not yet on every
+  architecture. A commit still unbuilt after a few hours is flagged as a
   possibly failed build.
 - **Upstream freshness**: PHP versions are compared with the latest releases
   on php.net; other source packages are checked against their `debian/watch`

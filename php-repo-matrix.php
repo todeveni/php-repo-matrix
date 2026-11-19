@@ -115,6 +115,17 @@ $config = [
 		'php%s-litespeed',
 	],
 
+	// Arch-specific packages of a phpX.Y build: while any of them is missing or
+	// older than the published source on an architecture, it is still building.
+	'build_packages' => [
+		'php%s-cli',
+		'php%s-fpm',
+		'php%s-cgi',
+		'libapache2-mod-php%s',
+		'libphp%s-embed',
+		'php%s-litespeed',
+	],
+
 	// Changelog entries to show per source package; 0 disables changelogs.
 	'changelog_entries' => 5,
 
@@ -1102,6 +1113,42 @@ if ($branchApi || $changelogApi) {
 					'url'     => $web,
 					'note'    => "Not built yet: $branch has $version (" . gmdate('Y-m-d H:i', $time)
 						. " UTC), published build is $built",
+				];
+			}
+		}
+	}
+}
+
+// A published phpX.Y source whose binaries are not yet on every architecture
+// (the arch:all phpX.Y package is, so the source itself looks up to date).
+foreach ($sources as $repoKey => $byCodename) {
+	if (($config['repos'][$repoKey]['builds']['type'] ?? null) === null) {
+		continue;
+	}
+	foreach ($byCodename as $codename => $srcs) {
+		foreach ($branches as $branch) {
+			$src = $srcs["php$branch"] ?? null;
+			if ($src === null) {
+				continue;
+			}
+			$names = array_map(static fn ($p) => sprintf($p, $branch), $config['build_packages']);
+			foreach ($buildArchs($repoKey, $codename) as $arch) {
+				$list = $pkgs[$repoKey][$codename][$arch] ?? [];
+				$lacking = array_values(array_filter(
+					$names,
+					static fn ($name) => !isset($list[$name]) || deb_version_compare($list[$name], $src['version']) < 0
+				));
+				// None of them at all: never built for this arch, not a build in progress.
+				if (!$lacking || !array_intersect_key($list, array_flip($names))) {
+					continue;
+				}
+				$building[$repoKey][$codename]["php$branch"][$arch] ??= [
+					'version' => $src['version'],
+					'state'   => 'Building',
+					'since'   => null,
+					'url'     => rtrim($config['repos'][$repoKey]['url'], '/') . '/' . $src['directory'] . '/',
+					'note'    => "Building: {$src['version']} is published, $arch still lacks it for "
+						. implode(', ', $lacking),
 				];
 			}
 		}
