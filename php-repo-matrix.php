@@ -1102,7 +1102,7 @@ if ($branchApi || $changelogApi) {
 		}
 		[$version, $since] = [$release[0], gmdate('c', $time)];
 		foreach ($uses as [$repoKey, $codename, $source, $built, $branch, $web]) {
-			if (deb_version_compare($version, $built) <= 0) {
+			if (deb_version_compare(base_version($version), $built) <= 0) {
 				continue;
 			}
 			$unbuiltCommits[] = [$repoKey, $codename, $source, $branch, $version, $since];
