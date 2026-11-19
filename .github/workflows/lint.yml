@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.5'
+          php-version: '8.6'
           coverage: none
           tools: cs2pr
       - run: php -l php-repo-matrix.php
