@@ -766,6 +766,7 @@ function deb_version_compare(string $a, string $b): int
  *   1:7.4.33-31+ubuntu24.04.1+deb.sury.org+1           -> 7.4.33-31
  *   1:7.4.33-31+0~20261021.121+debian13~1.gbpe9c428    -> 7.4.33-31
  *   8.6.0~rc5-2+0~deb.sury.org.1+debian13              -> 8.6.0~rc5-2
+ *   1:7.4.33-37+debsuryorg13.1+php+1 (Debusine)        -> 7.4.33-37
  *   5.22+0~20260903.42+debian11~1.gbpf43e56 (native)  -> 5.22
  *   2.3.3-13+deb12u1, 1.0-1~bpo12+1                    -> 2.3.3-13, 1.0-1
  */
@@ -773,7 +774,7 @@ function base_version(string $version): string
 {
 	$version = preg_replace('/^\d+:/', '', $version);
 	return preg_replace(
-		'/(?:\+(?:0~(?:\d|deb\.sury\.org)|debian\d|ubuntu\d|deb\d|deb\.sury\.org)|~(?:bpo|deb|ubuntu)\d).*$/',
+		'/(?:\+(?:0~(?:\d|deb\.sury\.org)|(?:deb(?:ian|suryorg)?|ubuntu)\d|deb\.sury\.org)|~(?:bpo|deb|ubuntu)\d).*$/',
 		'',
 		$version
 	);
