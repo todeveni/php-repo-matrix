@@ -1,6 +1,6 @@
 # PHP build matrix
 
-**Live report: <https://todeveni.github.io/php-repo-matrix/>** (updated every 15 minutes)
+**Live report: <https://todeveni.github.io/php-repo-matrix/>** (checked every 5 minutes, refreshed when the repository changes or hourly)
 
 A single, self-contained PHP script that builds an HTML overview of what is
 published in [deb.sury.org/php](https://packages.sury.org/php). It shows a
@@ -27,7 +27,7 @@ Background and discussion:
   file, the way uscan does.
 - **Todo list**: one row per thing to do for a source package, with filters.
 
-The data comes from the public APT indexes (Release, Packages and Sources),
+The data comes from the public APT indexes (InRelease, Packages and Sources),
 read the same way apt does. Everything is cached locally and revalidated with
 conditional requests, so unchanged indexes aren't downloaded again.
 
@@ -43,11 +43,18 @@ Requires PHP 8.5 with the curl and zlib extensions, and `tar` with xz support.
 ```sh
 php php-repo-matrix.php [--output=matrix.html|-] [--config=file.php]
                         [--no-cache] [--no-publish] [--include-unsupported]
+                        [--if-changed]
 ```
 
 The report is written to `matrix.html` next to the script (`--output=-` for
 stdout), then copied with scp to every `publish` target, if any. It can also
 be served by a web server, in which case the HTML goes to the client.
+
+`--if-changed` makes frequent runs cheap: it only revalidates the InRelease
+files (a conditional request each) and exits without writing anything unless
+one of them changed, or the last full run is `sweep_interval` (an hour) old.
+The hourly run picks up what never shows up in the repository: new packaging
+commits and php.net releases.
 
 ## Configuration
 
@@ -61,7 +68,9 @@ returns an array: `php-repo-matrix.config.php` next to the script, or
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) builds the
 report, keeps the script's cache between runs and deploys the page to GitHub
 Pages. It has no schedule of its own: a cron job elsewhere dispatches it every
-15 minutes, since GitHub's scheduled runs proved unreliable. To run it in a
+5 minutes, since GitHub's scheduled runs proved unreliable. Dispatched runs use
+`--if-changed`, so they only build and deploy when the repository changed or
+hourly (dispatch with `-f full=true` to force a full run). To run it in a
 fork, set Settings → Pages → Source to "GitHub Actions" and dispatch the
 workflow from your own cron, for example
 `gh workflow run publish.yml -R <owner>/php-repo-matrix` with a fine-grained

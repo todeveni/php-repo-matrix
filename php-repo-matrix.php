@@ -24,16 +24,21 @@
  * Usage (CLI):
  *   php php-repo-matrix.php [--output=matrix.html|-] [--config=file.php]
  *                           [--no-cache] [--no-publish] [--include-unsupported]
+ *                           [--if-changed]
  *
  * The report is written to matrix.html next to this script (--output=- for
  * stdout) and then copied to every 'publish' target with scp.
  *
- * Caching: Release files are cached and revalidated with If-Modified-Since
+ * --if-changed makes it cheap to run often (say every 5 minutes): it only
+ * revalidates the InRelease files, and exits without writing anything unless
+ * one of them changed or the last full run is sweep_interval old.
+ *
+ * Caching: InRelease files are cached and revalidated with If-Modified-Since
  * (after cache_ttl). Packages/Sources indexes are cached by the SHA256 listed
  * in Release, so they are only downloaded again when they actually change.
  * Changelogs are keyed by package version and never
  * refetched. Pages named in debian/watch are reused for watch_ttl, then
- * revalidated the same way. --no-cache forces revalidation of Release files
+ * revalidated the same way. --no-cache forces revalidation of InRelease files
  * and watched pages even within their TTL; content-addressed entries are
  * always reused.
  *
@@ -151,10 +156,17 @@ $config = [
 	'watch_prereleases' => false,
 
 	'cache_dir'    => sys_get_temp_dir() . '/php-repo-matrix-cache',
-	// Release files (and other unversioned lookups) are reused this many
+	// InRelease files (and other unversioned lookups) are reused this many
 	// seconds without asking; after that they are revalidated with
 	// If-Modified-Since, so 0 = always ask, but download only when changed.
 	'cache_ttl'    => 0,
+	// With --if-changed, a full run is done at least this often (seconds),
+	// even when no InRelease changed: packaging branches and php.net don't
+	// show up in the repositories.
+	'sweep_interval' => 3600,
+	// How often your cron runs it with --if-changed (seconds), so the report
+	// can say so; null = don't mention it.
+	'check_interval' => 300,
 	// Remove cache entries unused for this many days.
 	'cache_prune_days' => 30,
 	'http_timeout' => 60,
@@ -175,13 +187,16 @@ $config = [
 // Options
 
 $isCli = PHP_SAPI === 'cli';
-$opts = $isCli ? getopt('', ['output:', 'config:', 'no-cache', 'no-publish', 'include-unsupported', 'help']) : [];
+$opts = $isCli
+	? getopt('', ['output:', 'config:', 'no-cache', 'no-publish', 'include-unsupported', 'if-changed', 'help'])
+	: [];
 
 if (isset($opts['help'])) {
 	fwrite(
 		STDOUT,
 		'Usage: php ' . basename(__FILE__)
-			. " [--output=file.html|-] [--config=file.php] [--no-cache] [--no-publish] [--include-unsupported]\n"
+			. " [--output=file.html|-] [--config=file.php] [--no-cache] [--no-publish] [--include-unsupported]"
+			. " [--if-changed]\n"
 	);
 	exit(0);
 }
@@ -363,6 +378,27 @@ function fetch_all(
 
 	info("  $fromCache cached, $unchanged not modified, $downloaded downloaded");
 	return $results;
+}
+
+/** The signed text of an InRelease file (a Release file is returned as is). */
+function release_text(string $text): string
+{
+	if (preg_match('/^-----BEGIN PGP SIGNED MESSAGE-----\n.*?\n\n(.*?)^-----BEGIN PGP SIGNATURE-----/ms', $text, $m)) {
+		return preg_replace('/^- /m', '', $m[1]);
+	}
+	return $text;
+}
+
+/** "every 5 minutes", "every hour", ... */
+function every(int $seconds): string
+{
+	foreach (['day' => 86400, 'hour' => 3600, 'minute' => 60, 'second' => 1] as $unit => $size) {
+		if ($seconds >= $size && $seconds % $size === 0) {
+			$n = intdiv($seconds, $size);
+			return $n === 1 ? "every $unit" : "every $n {$unit}s";
+		}
+	}
+	return "every $seconds seconds";
 }
 
 /** @return array<string, string> path => SHA256 from a Release file */
@@ -857,7 +893,7 @@ foreach ($config['repos'] as $repoKey => $repo) {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch Release files, then Packages and Sources files
+// Fetch InRelease files, then Packages and Sources files
 
 $distUrl = static fn (string $repoKey, string $codename): string
 	=> rtrim($config['repos'][$repoKey]['url'], '/') . "/dists/$codename";
@@ -865,11 +901,42 @@ $distUrl = static fn (string $repoKey, string $codename): string
 $urls = [];
 foreach ($scan as $repoKey => $codenames) {
 	foreach ($codenames as $codename) {
-		$urls[] = $distUrl($repoKey, $codename) . '/Release';
+		$urls[] = $distUrl($repoKey, $codename) . '/InRelease';
 	}
 }
-info('Fetching ' . count($urls) . ' Release files...');
+info('Fetching ' . count($urls) . ' InRelease files...');
 $releases = fetch_all($urls, $config);
+// Like apt, fall back to Release where there is no InRelease.
+$missing = array_keys(array_filter($releases, 'is_null'));
+if ($missing) {
+	$fallback = array_combine(
+		$missing,
+		array_map(static fn ($url) => substr($url, 0, -strlen('InRelease')) . 'Release', $missing)
+	);
+	info('Fetching ' . count($fallback) . ' Release files...');
+	$bodies = fetch_all(array_values($fallback), $config);
+	foreach ($fallback as $url => $releaseUrl) {
+		$releases[$url] = $bodies[$releaseUrl] ?? null;
+	}
+}
+
+// With --if-changed, only do a full run when a repository has published
+// something (its InRelease changed), or when the last one is sweep_interval
+// old: packaging branches and php.net change without the repositories.
+$stateFile = $config['cache_dir'] . '/last-run.json';
+ksort($releases);
+$fingerprint = sha1(serialize($releases));
+if (isset($opts['if-changed'])) {
+	$last = is_file($stateFile) ? json_decode((string) file_get_contents($stateFile), true) : null;
+	if (
+		($last['fingerprint'] ?? null) === $fingerprint
+		&& time() - ($last['time'] ?? 0) < $config['sweep_interval']
+	) {
+		info('No repository changes since the last full run at ' . gmdate('Y-m-d H:i', $last['time']) . ' UTC');
+		exit(0);
+	}
+}
+$startTime = time();
 
 $dists = []; // repoKey => codename => ['published', 'date', 'archs', 'failed']
 $indexUrls = [];
@@ -877,11 +944,12 @@ $indexSha256 = [];
 foreach ($scan as $repoKey => $codenames) {
 	$component = $config['repos'][$repoKey]['component'];
 	foreach ($codenames as $codename) {
-		$body = $releases[$distUrl($repoKey, $codename) . '/Release'] ?? null;
+		$body = $releases[$distUrl($repoKey, $codename) . '/InRelease'] ?? null;
 		if ($body === null) {
 			$dists[$repoKey][$codename] = ['published' => false, 'date' => null, 'archs' => [], 'failed' => []];
 			continue;
 		}
+		$body = release_text($body);
 		$fields = parse_release($body);
 		$archs = preg_split('/\s+/', trim($fields['Architectures'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
 		$archs = array_diff(
@@ -1991,6 +2059,7 @@ $html = render_page(build_view($config, [
 	'cells'            => $cells,
 	'others'           => $others,
 	'todos'            => $todos,
+	'ifChanged'        => isset($opts['if-changed']),
 ]));
 
 // Drop cache entries nobody has used for a while.
@@ -2001,14 +2070,20 @@ foreach (glob($config['cache_dir'] . '/*') ?: [] as $file) {
 }
 
 $output = $opts['output'] ?? ($isCli ? __DIR__ . '/matrix.html' : '-');
+$saveState = static fn () => file_put_contents(
+	$stateFile,
+	json_encode(['fingerprint' => $fingerprint, 'time' => $startTime])
+);
 if ($output === '-') {
 	echo $html;
+	$saveState();
 	exit(0);
 }
 
 if (file_put_contents($output, $html) === false) {
 	fail("Cannot write $output");
 }
+$saveState();
 info(
 	"Wrote $output (" . count($issues['main']) . ' main issues, '
 		. count($issues['other']) . ' issue groups in other packages)'
@@ -2050,6 +2125,7 @@ function build_view(array $config, array $report): array
 		'cells'            => $cells,
 		'others'           => $others,
 		'todos'            => $todos,
+		'ifChanged'        => $ifChanged,
 	] = $report;
 
 	$supported = []; // "Debian 12 (bookworm), 13 (trixie)", ...
@@ -2061,6 +2137,9 @@ function build_view(array $config, array $report): array
 
 	$view = [
 		'generated'     => gmdate('Y-m-d H:i'),
+		// With --if-changed the page is only rewritten when something changed.
+		'checkEvery'    => $ifChanged && $config['check_interval'] ? every($config['check_interval']) : null,
+		'sweepEvery'    => every($config['sweep_interval']),
 		// null when no repository reports build status
 		'buildCount'    => array_filter(array_column($config['repos'], 'builds')) ? count($issues['build']) : null,
 		'repoLabels'    => array_column($config['repos'], 'label'),
@@ -2350,7 +2429,7 @@ function render_page(array $view): string
 <main>
 <header class="masthead">
 	<h1>php<span>/</span>build-matrix</h1>
-	<div class="stamp">generated <?= h($view['generated']) ?> UTC<?php if ($view['buildCount'] !== null): ?><br><?php if ($view['buildCount']): ?><a href="#building"><?= $view['buildCount'] ?> source<?= $view['buildCount'] === 1 ? '' : 's' ?> building</a><?php else: ?>no builds in progress<?php endif; ?><?php endif; ?><br><a href="<?= h($view['sourceUrl']) ?>"><?= h($view['sourceLabel']) ?></a></div>
+	<div class="stamp">generated <?= h($view['generated']) ?> UTC<?php if ($view['checkEvery'] !== null): ?><br><span title="The repository is checked <?= h($view['checkEvery']) ?>; the report is regenerated when it has changed, and at least <?= h($view['sweepEvery']) ?>">checked <?= h($view['checkEvery']) ?></span><?php endif; ?><?php if ($view['buildCount'] !== null): ?><br><?php if ($view['buildCount']): ?><a href="#building"><?= $view['buildCount'] ?> source<?= $view['buildCount'] === 1 ? '' : 's' ?> building</a><?php else: ?>no builds in progress<?php endif; ?><?php endif; ?><br><a href="<?= h($view['sourceUrl']) ?>"><?= h($view['sourceLabel']) ?></a></div>
 	<p>Core and SAPI package versions per PHP branch, distribution and architecture in
 		<?= h(implode(' and ', $view['repoLabels'])) ?>.<br>
 		Tracked: <code><?= h($view['tracked']) ?></code></p>
@@ -2417,6 +2496,10 @@ function render_page(array $view): string
 <hr>
 <footer>
 	generated <?= h($view['generated']) ?> UTC
+	<?php if ($view['checkEvery'] !== null): ?>
+	· the repository is checked <?= h($view['checkEvery']) ?>, and the report regenerated when it has changed
+	(and at least <?= h($view['sweepEvery']) ?>, for packaging commits and php.net releases)
+	<?php endif; ?>
 	· <a href="<?= h($view['sourceUrl']) ?>">source on GitHub</a>
 	· Toni Viemerö &lt;<a href="mailto:toni.viemero@iki.fi">toni.viemero@iki.fi</a>&gt;
 </footer>
